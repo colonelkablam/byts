@@ -1,0 +1,79 @@
+# --- OS / Editor junk ---
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*.tmp
+*.bak
+*.orig
+*.log
+
+# VS Code (keep this if you don't want to commit workspace files)
+.vscode/
+
+# CLion / JetBrains
+.idea/
+
+# --- Build directories (out-of-source recommended) ---
+# Common build dir names
+/build/
+/build-*/
+/cmake-build-*/
+/out/
+/out-*/
+
+# CMake's test dir
+/Testing/
+
+# --- CMake artifacts/cache ---
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+cmake_install.cmake
+CTestTestfile.cmake
+_install/
+install_manifest.txt
+CMakeUserPresets.json
+
+# Dependencies downloaded/added by CMake FetchContent
+/_deps/
+
+# If you generate compile_commands.json, you may WANT to keep it for IDEs.
+# Comment out the next line if you want it tracked.
+/compile_commands.json
+/compile_flags.txt
+
+# --- Ninja files ---
+build.ninja
+rules.ninja
+.ninja_log
+.ninja_deps
+
+# --- Compiled objects / libs / bins ---
+# Generic
+*.o
+*.obj
+*.lo
+*.la
+*.a
+*.lib
+*.so
+*.dylib
+*.dll
+*.exe
+
+# MSVC extra
+*.pdb
+*.ilk
+*.idb
+*.exp
+*.rsp
+
+# --- Coverage / Sanitizers / Crash dumps ---
+*.gcno
+*.gcda
+*.profraw
+*.profdata
+*.lsan.txt
+*.asan.*
+core
