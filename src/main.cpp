@@ -1,22 +1,33 @@
 #include <SFML/Graphics.hpp>
-#include "World.hpp"
+#include "byts/World.hpp"
 
 using namespace byts;
 
+static void draw_ring(sf::RenderWindow& win, sf::Vector2f center, float r, sf::Color outline) {
+    sf::CircleShape ring;
+    ring.setPointCount(64);
+    ring.setRadius(r);
+    ring.setOrigin(r, r);
+    ring.setPosition(center);
+    ring.setFillColor(sf::Color::Transparent);
+    ring.setOutlineThickness(1.f);
+    ring.setOutlineColor(outline);
+    win.draw(ring);
+}
+
 int main() {
     const float W = 960.f, H = 540.f;
-
-    sf::RenderWindow win(sf::VideoMode(static_cast<unsigned>(W),
-                                       static_cast<unsigned>(H)),
-                         "Byts");
+    sf::RenderWindow win(sf::VideoMode((unsigned)W,(unsigned)H), "Byts debug");
     win.setFramerateLimit(120);
 
     World world{W, H};
-    world.spawn(50);
+    world.spawn(5);
+    world.add_object(ObjectKind::Food, {100.f, 100.f}, SenseMask::Visible);
+    world.add_object(ObjectKind::Food, {400.f, 300.f}, SenseMask::Visible);
 
-    sf::CircleShape dot(3.f);
-    dot.setOrigin(3.f, 3.f);
-    dot.setFillColor(sf::Color::White);
+    sf::CircleShape bytDot(3.f);  bytDot.setOrigin(3.f,3.f);  bytDot.setFillColor(sf::Color::White);
+    sf::CircleShape foodDot(4.f); foodDot.setOrigin(4.f,4.f); foodDot.setFillColor(sf::Color(255,180,0)); // orange
+
 
     sf::Clock clk;
     while (win.isOpen()) {
@@ -27,10 +38,25 @@ int main() {
         world.update(dt);
 
         win.clear(sf::Color(40,100,20));
+
         for (const auto& b : world.byts()) {
-            dot.setPosition(b.pos());
-            win.draw(dot);
+            // byt dot
+            bytDot.setPosition(b.pos());
+            win.draw(bytDot);
+
+            // DEBUG: sight (green) + hearing (blue) radii
+            draw_ring(win, b.pos(), b.senses().sight_range,   sf::Color(0,255,0,120));
+            draw_ring(win, b.pos(), b.senses().hearing_range, sf::Color(0,128,255,120));
         }
+
+        // draw food
+        for (const auto& obj : world.objects()) {
+            if (obj.kind() == ObjectKind::Food) {
+                foodDot.setPosition(obj.pos());
+                win.draw(foodDot);
+            }
+        }
+
         win.display();
     }
 }
