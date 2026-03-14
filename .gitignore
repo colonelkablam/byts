@@ -40,7 +40,7 @@ CMakeUserPresets.json
 
 # If you generate compile_commands.json, you may WANT to keep it for IDEs.
 # Comment out the next line if you want it tracked.
-/compile_commands.json
+#/compile_commands.json
 /compile_flags.txt
 
 # --- Ninja files ---
