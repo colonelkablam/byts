@@ -191,7 +191,7 @@ After changing `.cpp` or `.hpp` files, this is usually the only command you need
 After a successful build, run the executable:
 
 ```bash
-./build/byts
+./build/byts_demo
 ```
 
 Depending on the CMake configuration, it may also appear in:
@@ -208,7 +208,7 @@ Most of the time you will only need to run:
 
 ```bash
 cmake --build build -j
-./build/byts
+./build/byts_demo
 ```
 
 ---
@@ -221,7 +221,7 @@ If the build folder becomes corrupted or confused:
 rm -rf build
 cmake -S . -B build
 cmake --build build -j
-./build/byts
+./build/byts_demo
 ```
 
 ---
@@ -247,7 +247,7 @@ Quick reminder:
 ```
 cmake -S . -B build
 cmake --build build -j
-./build/byts
+./build/byts_demo
 ```
 
 If compilation fails with SFML errors, make sure the **SFML development libraries** are installed.
