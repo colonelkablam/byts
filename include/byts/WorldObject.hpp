@@ -1,7 +1,7 @@
 #pragma once
 #include <SFML/System/Vector2.hpp>
 #include <SFML/Graphics/Color.hpp>
-#include "Sense.hpp"
+#include "SenseMask.hpp"
 
 namespace byts {
 
@@ -32,8 +32,6 @@ public:
     bool solid() const noexcept { return solid_; }
     float size() const noexcept { return size_; }
     sf::Color color() const noexcept { return color_; }
-
-
 
 protected:
     ObjectKind kind_;

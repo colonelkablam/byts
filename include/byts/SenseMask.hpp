@@ -8,8 +8,8 @@ enum class SenseMask : uint8_t {
     None    = 0,
     Visible = 1 << 0,
     Audible = 1 << 1,
-    // Smell   = 1 << 2,
-    // Tactile = 1 << 3,
+    Smell   = 1 << 2,
+    Tactile = 1 << 3,
 };
 
 inline SenseMask operator|(SenseMask a, SenseMask b) {

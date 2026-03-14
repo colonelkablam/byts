@@ -70,18 +70,12 @@ std::size_t World::add_object(ObjectKind kind,
     return id;
 }
 
-std::size_t World::add_food(sf::Vector2f pos, float energy) {
+std::size_t World::add_food(sf::Vector2f pos, float energy, float size) {
 
     std::size_t id = next_object_id_++;
 
     objects_.push_back(
-        std::make_unique<FoodObject>(
-            pos,
-            id,
-            energy,
-            4.f,
-            sf::Color(255,180,0) // food colour
-        )
+        std::make_unique<FoodObject>(pos, id, energy, size)
     );
 
     return id;
@@ -101,12 +95,12 @@ void World::spawn_byts(std::size_t n) {
     }
 }
 
-void World::spawn_food(std::size_t n, float energy) {
+void World::spawn_food(std::size_t n, float energy, float size) {
     std::mt19937 rng(54321u);
     std::uniform_real_distribution<float> dx(0.f, w_), dy(0.f, h_);
 
     for (std::size_t i = 0; i < n; ++i) {
-        add_food({ dx(rng), dy(rng) }, energy);
+        add_food({ dx(rng), dy(rng) }, energy, size);
     }
 }
 
@@ -122,6 +116,9 @@ void World::update(float dt) {
         b.integrate(dt);
         apply_boundaries(b);
     }
+
+        resolve_food_consumption();
+
 }
 
 void World::apply_boundaries(Byt& b) const noexcept {
@@ -136,6 +133,46 @@ void World::apply_boundaries(Byt& b) const noexcept {
 
     b.set_pos(p);
     b.set_vel(v);
+}
+
+void World::resolve_food_consumption()
+{
+    for (auto& byt : byts_) {
+
+        const auto& pos = byt.pos();
+        float byt_size = byt.size();
+
+        for (auto it = objects_.begin(); it != objects_.end(); ) {
+
+            WorldObject* obj = it->get();
+
+            if (obj->kind() != ObjectKind::Food) {
+                ++it;
+                continue;
+            }
+
+            auto* food = static_cast<FoodObject*>(obj);
+
+            sf::Vector2f delta{
+                food->pos().x - pos.x,
+                food->pos().y - pos.y
+            };
+
+            float dist2 = delta.x * delta.x + delta.y * delta.y;
+            float touch = byt_size + food->size();
+
+            if (dist2 <= touch * touch) {
+
+                byt.add_energy(food->energy());
+
+                it = objects_.erase(it);   // food disappears
+
+                break;                     // byt eats only one food per update
+            }
+
+            ++it;
+        }
+    }
 }
 
 } // namespace byts

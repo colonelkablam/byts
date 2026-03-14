@@ -26,6 +26,7 @@ void Byt::set_id(std::size_t id) noexcept {
 void Byt::sense_update(const World& world, Seconds dt) {
     sight_timer_   += dt;
     hearing_timer_ += dt;
+    smell_timer_   += dt;    
 
     if (sight_timer_ >= cfg_.sight_cadence) {
         sight_timer_ = 0.f;
@@ -38,6 +39,7 @@ void Byt::sense_update(const World& world, Seconds dt) {
             seen_.push_back(Seen{ it.kind, {it.pos.x, it.pos.y}, it.distance, it.id });
         }
     }
+
     if (hearing_timer_ >= cfg_.hearing_cadence) {
         hearing_timer_ = 0.f;
         std::vector<Perceived> buf;
@@ -49,6 +51,18 @@ void Byt::sense_update(const World& world, Seconds dt) {
             heard_.push_back(Heard{ it.kind, {it.pos.x, it.pos.y}, it.distance, it.id });
         }
     }
+
+    if (smell_timer_ >= cfg_.smell_cadence) {
+    smell_timer_ = 0.f;
+    std::vector<Perceived> buf;
+    world.query_in_radius(pos_, cfg_.smell_range, SenseMask::Smell, buf);
+    smelled_.clear();
+    smelled_.reserve(buf.size());
+    for (const auto& it : buf) {
+        if (it.kind == ObjectKind::Byt && it.id == id_) continue;
+        smelled_.push_back(Smelled{ it.kind, {it.pos.x, it.pos.y}, it.distance, it.id });
+    }
+}
 }
 
 
@@ -72,6 +86,9 @@ void Byt::decide_behavior() {
     }
 }
 
+void Byt::add_energy(float amount) noexcept {
+    brain_.stored_energy = std::min(1.f, brain_.stored_energy + amount);
+}
 
 sf::Vector2f Byt::do_wander(float /*dt*/) {
     std::normal_distribution<float> N(0.f, 1.f);
@@ -79,17 +96,41 @@ sf::Vector2f Byt::do_wander(float /*dt*/) {
 }
 
 sf::Vector2f Byt::do_forage(float /*dt*/) {
-    const Seen* nearest = nullptr;
-    for (const auto& s : seen_) if (s.kind == ObjectKind::Food)
-        if (!nearest || s.distance < nearest->distance) nearest = &s;
+    const Seen* nearest_seen = nullptr;
+    for (const auto& s : seen_) {
+        if (s.kind == ObjectKind::Food) {
+            if (!nearest_seen || s.distance < nearest_seen->distance) {
+                nearest_seen = &s;
+            }
+        }
+    }
 
-    if (!nearest) return do_wander(0.f);
+    if (nearest_seen) {
+        sf::Vector2f to{ nearest_seen->pos.x - pos_.x, nearest_seen->pos.y - pos_.y };
+        float L2 = to.x*to.x + to.y*to.y;
+        if (L2 < 1e-6f) return {0.f, 0.f};
+        float invL = 1.0f / std::sqrt(L2);
+        return { to.x * invL * gains_.forage, to.y * invL * gains_.forage };
+    }
 
-    sf::Vector2f to{ nearest->pos.x - pos_.x, nearest->pos.y - pos_.y };
-    float L2 = to.x*to.x + to.y*to.y;
-    if (L2 < 1e-6f) return {0.f, 0.f};
-    float invL = 1.0f / std::sqrt(L2);
-    return { to.x * invL * gains_.forage, to.y * invL * gains_.forage };
+    const Smelled* nearest_smelled = nullptr;
+    for (const auto& s : smelled_) {
+        if (s.kind == ObjectKind::Food) {
+            if (!nearest_smelled || s.distance < nearest_smelled->distance) {
+                nearest_smelled = &s;
+            }
+        }
+    }
+
+    if (nearest_smelled) {
+        sf::Vector2f to{ nearest_smelled->pos.x - pos_.x, nearest_smelled->pos.y - pos_.y };
+        float L2 = to.x*to.x + to.y*to.y;
+        if (L2 < 1e-6f) return {0.f, 0.f};
+        float invL = 1.0f / std::sqrt(L2);
+        return { to.x * invL * gains_.forage * 0.7f, to.y * invL * gains_.forage * 0.7f };
+    }
+
+    return do_wander(0.f);
 }
 
 sf::Vector2f Byt::do_seek_companion(float /*dt*/) {

@@ -2,7 +2,7 @@
 #include <SFML/System/Vector2.hpp>
 #include <vector>
 #include <random>
-#include "Sense.hpp"
+#include "SenseMask.hpp"
 
 namespace byts {
 
@@ -11,6 +11,9 @@ class World; // forward declaration
 class Byt {
 public:
     using Seconds = float;
+
+    Byt(float size = 6.f)
+        : size_(size) {}
 
     enum class Mood { Neutral, Hungry, Lonely };
     enum class Behavior { Wander, Forage, SeekCompanion };
@@ -28,10 +31,13 @@ public:
     };
 
     struct SensesConfig {
-        float sight_range    = 120.f;
-        float hearing_range  = 180.f;
-        Seconds sight_cadence   = 0.05f; // 20 Hz
-        Seconds hearing_cadence = 0.20f; // 5 Hz
+        float sight_range     = 120.f;
+        float hearing_range   = 80.f;
+        float smell_range     = 220.f;
+
+        Seconds sight_cadence   = 0.05f;
+        Seconds hearing_cadence = 0.20f;
+        Seconds smell_cadence   = 0.15f;
     };
 
     struct Seen {
@@ -41,6 +47,12 @@ public:
         std::size_t  id;
     };
     struct Heard {
+        ObjectKind   kind;
+        sf::Vector2f pos;
+        float        distance;
+        std::size_t  id;
+    };
+    struct Smelled {
         ObjectKind   kind;
         sf::Vector2f pos;
         float        distance;
@@ -59,6 +71,7 @@ public:
 
     explicit Byt(sf::Vector2f p) : pos_(p) {}
 
+    void add_energy(float amount) noexcept;
     void sense_update(const World& world, Seconds dt);
     void step(Seconds dt) noexcept;       // decide/accelerate based on seen_/heard_
     void integrate(Seconds dt) noexcept;  // pos += vel * dt, clamp speed, etc.
@@ -74,10 +87,13 @@ public:
 
     const std::vector<Seen>&  seen()  const noexcept { return seen_; }
     const std::vector<Heard>& heard() const noexcept { return heard_; }
+    const std::vector<Smelled>& smelled() const noexcept { return smelled_; }
     SensesConfig& senses() noexcept { return cfg_; }
     const SensesConfig& senses() const noexcept { return cfg_; }
+    float size() const noexcept { return size_; }
 
 private:
+    float size_ = 6.f;
     std::size_t  id_{0};
     sf::Vector2f pos_{0.f, 0.f};
     sf::Vector2f vel_{0.f, 0.f};
@@ -97,8 +113,10 @@ private:
     SensesConfig     cfg_;
     Seconds          sight_timer_{0.f};
     Seconds          hearing_timer_{0.f};
+    Seconds          smell_timer_{0.f};
     std::vector<Seen>  seen_;
     std::vector<Heard> heard_;
+    std::vector<Smelled> smelled_;
 
     // helpers
     void decide_mood();

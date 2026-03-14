@@ -57,7 +57,7 @@ int main() {
 
     World world{W, H};
     world.spawn_byts(5);
-    world.spawn_food(12, 0.35f);
+    world.spawn_food(12, 0.35f, 6);
     
     sf::CircleShape bytDot(3.f);  bytDot.setOrigin(3.f,3.f);  bytDot.setFillColor(sf::Color::White);
     sf::CircleShape objectShape;
@@ -83,6 +83,7 @@ int main() {
             // DEBUG: sight (green) + hearing (blue) radii
             draw_ring(win, b.pos(), b.senses().sight_range,   sf::Color(0,255,0,120));
             draw_ring(win, b.pos(), b.senses().hearing_range, sf::Color(0,128,255,120));
+            draw_ring(win, b.pos(), b.senses().smell_range,   sf::Color(255,100,255,100));
             draw_energy_text(win, energyText, b.pos(), b.energy());
         }
 
