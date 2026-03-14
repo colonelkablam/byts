@@ -1,6 +1,8 @@
 #include "byts/World.hpp"
 #include <random>
 #include <cmath>
+#include <memory>
+
 
 namespace byts {
 
@@ -19,9 +21,9 @@ void World::query_in_radius(sf::Vector2f center,
     auto consider = [&](ObjectKind kind,
                         std::size_t id,
                         sf::Vector2f pos,
-                        SenseMask senses)
+                        SenseMask perceptible_by)
     {
-        if (!has(senses, sense)) return;
+        if (!has(perceptible_by, sense)) return;
         sf::Vector2f d{ pos.x - center.x, pos.y - center.y };
         float d2 = len2(d);
         if (d2 <= r2) {
@@ -42,35 +44,69 @@ void World::query_in_radius(sf::Vector2f center,
 
     // Generic world objects
     for (const auto& obj : objects_) {
-        consider(obj.kind(), obj.id(), obj.pos(), obj.senses());
+        consider(obj->kind(), obj->id(), obj->pos(), obj->perceptible_by());
     }
 }
 
-std::size_t World::add_object(ObjectKind kind, sf::Vector2f pos, SenseMask senses) {
+std::size_t World::add_object(ObjectKind kind,
+                              sf::Vector2f pos,
+                              SenseMask perceptible_by,
+                              bool solid,
+                              float size,
+                              sf::Color color)
+{
     std::size_t id = next_object_id_++;
-    objects_.emplace_back(kind, pos, senses, id);
+    objects_.push_back(
+        std::make_unique<WorldObject>(
+            kind,
+            pos,
+            perceptible_by,
+            solid,
+            size,
+            color,
+            id
+        )
+    );
     return id;
 }
 
-void World::spawn(std::size_t n) {
-    // Simple deterministic-ish scatter (use your own RNG/seed as needed)
-    // std::mt19937 rng(12345u);
-    std::mt19937 rng(std::random_device{}());
+std::size_t World::add_food(sf::Vector2f pos, float energy) {
+
+    std::size_t id = next_object_id_++;
+
+    objects_.push_back(
+        std::make_unique<FoodObject>(
+            pos,
+            id,
+            energy,
+            4.f,
+            sf::Color(255,180,0) // food colour
+        )
+    );
+
+    return id;
+}
+
+void World::spawn_byts(std::size_t n) {
+    std::mt19937 rng(12345u);
     std::uniform_real_distribution<float> dx(0.f, w_), dy(0.f, h_);
 
     const std::size_t start = byts_.size();
     byts_.reserve(start + n);
+
     for (std::size_t i = 0; i < n; ++i) {
         Byt b({ dx(rng), dy(rng) });
-        b.set_id(start + i + 1); // ids start at 1, keep 0 unused if preferred
+        b.set_id(start + i + 1);
         byts_.push_back(b);
     }
+}
 
-    // Add a few foods for the demo
-    for (int i = 0; i < 8; ++i) {
-        add_object(ObjectKind::Food,
-                   { dx(rng), dy(rng) },
-                   SenseMask::Visible);
+void World::spawn_food(std::size_t n, float energy) {
+    std::mt19937 rng(54321u);
+    std::uniform_real_distribution<float> dx(0.f, w_), dy(0.f, h_);
+
+    for (std::size_t i = 0; i < n; ++i) {
+        add_food({ dx(rng), dy(rng) }, energy);
     }
 }
 

@@ -27,6 +27,20 @@ static void draw_energy_text(sf::RenderWindow& win,
     win.draw(text);
 }
 
+static void draw_object_circle(sf::RenderWindow& win,
+                        sf::CircleShape& shape,
+                        sf::Vector2f center,
+                        float r,
+                        sf::Color c = sf::Color(255,180,0))
+{
+    shape.setRadius(r);
+    shape.setOrigin(r, r);
+    shape.setPosition(center);
+    shape.setFillColor(c);
+
+    win.draw(shape);
+}
+
 int main() {
     const float W = 960.f, H = 540.f;
     sf::RenderWindow win(sf::VideoMode((unsigned)W,(unsigned)H), "Byts debug");
@@ -42,12 +56,13 @@ int main() {
     energyText.setFillColor(sf::Color::White);
 
     World world{W, H};
-    world.spawn(5);
-    world.add_object(ObjectKind::Food, {100.f, 100.f}, SenseMask::Visible);
-    world.add_object(ObjectKind::Food, {400.f, 300.f}, SenseMask::Visible);
-
+    world.spawn_byts(5);
+    world.spawn_food(12, 0.35f);
+    
     sf::CircleShape bytDot(3.f);  bytDot.setOrigin(3.f,3.f);  bytDot.setFillColor(sf::Color::White);
-    sf::CircleShape foodDot(4.f); foodDot.setOrigin(4.f,4.f); foodDot.setFillColor(sf::Color(255,180,0)); // orange
+    sf::CircleShape objectShape;
+    objectShape.setPointCount(32);   // smoother circle
+    objectShape.setOutlineColor(sf::Color::Black);
 
 
     sf::Clock clk;
@@ -73,10 +88,13 @@ int main() {
 
         // draw food
         for (const auto& obj : world.objects()) {
-            if (obj.kind() == ObjectKind::Food) {
-                foodDot.setPosition(obj.pos());
-                win.draw(foodDot);
-            }
+            draw_object_circle(
+                win,
+                objectShape,
+                obj->pos(),
+                obj->size(),
+                obj->color()
+            );
         }
 
         win.display();
