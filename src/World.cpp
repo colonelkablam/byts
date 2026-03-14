@@ -54,7 +54,8 @@ std::size_t World::add_object(ObjectKind kind, sf::Vector2f pos, SenseMask sense
 
 void World::spawn(std::size_t n) {
     // Simple deterministic-ish scatter (use your own RNG/seed as needed)
-    std::mt19937 rng(12345u);
+    // std::mt19937 rng(12345u);
+    std::mt19937 rng(std::random_device{}());
     std::uniform_real_distribution<float> dx(0.f, w_), dy(0.f, h_);
 
     const std::size_t start = byts_.size();

@@ -12,15 +12,19 @@ class Byt {
 public:
     using Seconds = float;
 
-    enum class Mood { Neutral, Hungry, Friendly };
+    enum class Mood { Neutral, Hungry, Lonely };
     enum class Behavior { Wander, Forage, SeekCompanion };
 
     struct Brain {
-        float hunger = 0.f;       // 0..1   (future: rises with time)
-        float social = 0.f;       // 0..1   (future: rises with isolation)
-        // thresholds for switching later
-        float hunger_on  = 0.6f;
-        float social_on  = 0.6f;
+        float stored_energy = 1.f;   // 0..1
+        float social_need   = 0.f;   // 0..1
+
+        float hunger_on     = 0.6f;
+        float critical_on   = 0.2f;
+        float social_on     = 0.6f;
+
+        float energy_drain_per_sec = 0.02f;
+        float food_energy_gain     = 0.35f;
     };
 
     struct SensesConfig {
@@ -51,6 +55,7 @@ public:
     // debug access
     Mood mood() const noexcept { return mood_; }
     Behavior behavior() const noexcept { return behavior_; }
+    float energy() const noexcept { return brain_.stored_energy; }
 
     explicit Byt(sf::Vector2f p) : pos_(p) {}
 
@@ -84,7 +89,7 @@ private:
     SteeringGains gains_;
 
     // —— state ——
-    Mood      mood_{Mood::Hungry};        // hard-coded neutral for now
+    Mood      mood_{Mood::Neutral};        // hard-coded neutral for now
     Behavior  behavior_{Behavior::Wander}; // derived from mood_
     Brain     brain_;
 
@@ -96,10 +101,12 @@ private:
     std::vector<Heard> heard_;
 
     // helpers
+    void decide_mood();
     void decide_behavior();                 // mood → behavior
     sf::Vector2f do_wander(float dt);
     sf::Vector2f do_forage(float dt);       // needs Food in world to shine
     sf::Vector2f do_seek_companion(float dt);
+    bool is_hungry() const noexcept { return brain_.stored_energy <= brain_.hunger_on; }
 };
 
 } // namespace byts

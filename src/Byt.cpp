@@ -51,14 +51,27 @@ void Byt::sense_update(const World& world, Seconds dt) {
     }
 }
 
+
+void Byt::decide_mood() {
+    if (brain_.stored_energy <= brain_.hunger_on) {
+        mood_ = Mood::Hungry;
+    }
+    else if (brain_.social_need >= brain_.social_on) {
+        mood_ = Mood::Lonely;
+    }
+    else {
+        mood_ = Mood::Neutral;
+    }
+}
+
 void Byt::decide_behavior() {
-    // For now: hard-coded mapping; later use brain_ to switch moods.
     switch (mood_) {
         case Mood::Neutral:  behavior_ = Behavior::Wander;        break;
         case Mood::Hungry:   behavior_ = Behavior::Forage;        break;
-        case Mood::Friendly: behavior_ = Behavior::SeekCompanion; break;
+        case Mood::Lonely:   behavior_ = Behavior::SeekCompanion; break;
     }
 }
+
 
 sf::Vector2f Byt::do_wander(float /*dt*/) {
     std::normal_distribution<float> N(0.f, 1.f);
@@ -93,6 +106,11 @@ sf::Vector2f Byt::do_seek_companion(float /*dt*/) {
 }
 
 void Byt::step(Seconds dt) noexcept {
+    brain_.stored_energy -= brain_.energy_drain_per_sec * dt;
+    if (brain_.stored_energy < 0.f) {
+        brain_.stored_energy = 0.f;
+    }
+    decide_mood();
     decide_behavior();
 
     sf::Vector2f force{0.f, 0.f};
@@ -102,24 +120,28 @@ void Byt::step(Seconds dt) noexcept {
         if (s.kind != ObjectKind::Byt) continue;
         sf::Vector2f away{ pos_.x - s.pos.x, pos_.y - s.pos.y };
         float d2 = away.x*away.x + away.y*away.y;
-        const float min_d2 = 16.f; if (d2 < min_d2) d2 = min_d2;
-        float inv_d = 1.0f / std::sqrt(d2);     // 1/d
-        away.x *= inv_d * inv_d;                // ~1/d^2
+        const float min_d2 = 16.f;
+        if (d2 < min_d2) d2 = min_d2;
+
+        float inv_d = 1.0f / std::sqrt(d2);
+        away.x *= inv_d * inv_d;
         away.y *= inv_d * inv_d;
+
         force.x += away.x * gains_.personal_space;
         force.y += away.y * gains_.personal_space;
     }
 
     // ---- Behavior-specific steering ----
-    sf::Vector2f b = {};
+    sf::Vector2f b{0.f, 0.f};
     switch (behavior_) {
-        case Behavior::Wander:        b = do_wander(dt);        break;
-        case Behavior::Forage:        b = do_forage(dt);        break;
-        case Behavior::SeekCompanion: b = do_seek_companion(dt);break;
+        case Behavior::Wander:        b = do_wander(dt);         break;
+        case Behavior::Forage:        b = do_forage(dt);         break;
+        case Behavior::SeekCompanion: b = do_seek_companion(dt); break;
     }
-    force.x += b.x; force.y += b.y;
 
-    // integrate force → velocity
+    force.x += b.x;
+    force.y += b.y;
+
     vel_.x += force.x * dt;
     vel_.y += force.y * dt;
     vel_ = clamp_speed(vel_, max_speed_);
