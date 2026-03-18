@@ -30,6 +30,13 @@ public:
         float food_energy_gain     = 0.35f;
     };
 
+    struct FoodTargetMemory {
+        bool active = false;
+        std::size_t id = 0;
+        sf::Vector2f pos{0.f, 0.f};
+        float age = 0.f;
+    };
+
     struct SensesConfig {
         float sight_range     = 120.f;
         float hearing_range   = 80.f;
@@ -60,7 +67,12 @@ public:
     };
 
     // tweak gains externally?
-    struct SteeringGains { float personal_space=150.f, wander=100.f, forage=400.f, companion=35.f; };
+    struct SteeringGains { 
+        float personal_space    = 150.f, 
+        wander                  = 100.f, 
+        forage                  = 400.f, 
+        companion               = 35.f; 
+    };
     SteeringGains& gains() noexcept { return gains_; }
     const SteeringGains& gains() const noexcept { return gains_; }
 
@@ -97,7 +109,10 @@ private:
     std::size_t  id_{0};
     sf::Vector2f pos_{0.f, 0.f};
     sf::Vector2f vel_{0.f, 0.f};
-    float        max_speed_ = 60.f;
+    sf::Vector2f wander_dir_{1.f, 0.f};
+    float        max_speed_ = 20.f;
+    Seconds wander_change_timer_{0.f};
+    float memory_persistance_{10.f};
 
     std::mt19937 rng_{0xB17}; // seed updated via set_id()
 
@@ -105,9 +120,10 @@ private:
     SteeringGains gains_;
 
     // —— state ——
-    Mood      mood_{Mood::Neutral};        // hard-coded neutral for now
+    Mood      mood_{Mood::Neutral};        // hard-coded neutral to start
     Behavior  behavior_{Behavior::Wander}; // derived from mood_
     Brain     brain_;
+    FoodTargetMemory foodTargetMemory_;
 
     // Sense state/buffers
     SensesConfig     cfg_;
@@ -119,12 +135,34 @@ private:
     std::vector<Smelled> smelled_;
 
     // helpers
-    void decide_mood();
-    void decide_behavior();                 // mood → behavior
+    void decide_mood();                     // mood → behavior
+    void decide_behavior();
+    void update_food_memory(Seconds dt);
     sf::Vector2f do_wander(float dt);
-    sf::Vector2f do_forage(float dt);       // needs Food in world to shine
+    sf::Vector2f do_forage(float dt);
     sf::Vector2f do_seek_companion(float dt);
     bool is_hungry() const noexcept { return brain_.stored_energy <= brain_.hunger_on; }
+    inline float len2(sf::Vector2f v) noexcept { return v.x*v.x + v.y*v.y; }
+
+    inline sf::Vector2f clamp_speed(sf::Vector2f v, float max_speed) noexcept {
+        const float max2 = max_speed * max_speed;
+        float L2 = len2(v);
+        if (L2 <= max2) return v;
+        float inv = max_speed / std::sqrt(L2);
+        return { v.x * inv, v.y * inv };
+    }
+    
+    inline sf::Vector2f steer_towards(sf::Vector2f from,
+                                      sf::Vector2f to,
+                                      float strength) noexcept
+    {
+        sf::Vector2f d{ to.x - from.x, to.y - from.y };
+        float L2 = d.x*d.x + d.y*d.y;
+        if (L2 < 1e-6f) return {0.f, 0.f};
+    
+        float invL = 1.f / std::sqrt(L2);
+        return { d.x * invL * strength, d.y * invL * strength };
+    }
 };
 
 } // namespace byts

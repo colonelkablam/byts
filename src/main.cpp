@@ -42,7 +42,7 @@ static void draw_object_circle(sf::RenderWindow& win,
 }
 
 int main() {
-    const float W = 960.f, H = 540.f;
+    const float W = 1280.f, H = 1024.f;
     sf::RenderWindow win(sf::VideoMode((unsigned)W,(unsigned)H), "Byts debug");
     win.setFramerateLimit(120);
 
@@ -56,8 +56,8 @@ int main() {
     energyText.setFillColor(sf::Color::White);
 
     World world{W, H};
-    world.spawn_byts(5);
-    world.spawn_food(12, 0.35f, 6);
+    world.spawn_byts(1);
+    world.spawn_food(1, 0.35f, 6);
     
     sf::CircleShape bytDot(3.f);  bytDot.setOrigin(3.f,3.f);  bytDot.setFillColor(sf::Color::White);
     sf::CircleShape objectShape;

@@ -82,7 +82,7 @@ std::size_t World::add_food(sf::Vector2f pos, float energy, float size) {
 }
 
 void World::spawn_byts(std::size_t n) {
-    std::mt19937 rng(12345u);
+    std::mt19937 rng(22345u);
     std::uniform_real_distribution<float> dx(0.f, w_), dy(0.f, h_);
 
     const std::size_t start = byts_.size();

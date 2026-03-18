@@ -21,6 +21,9 @@ void Byt::set_id(std::size_t id) noexcept {
     id_ = id;
     std::seed_seq seed{ static_cast<unsigned>(0xB17), static_cast<unsigned>(id_) };
     rng_.seed(seed);
+    std::uniform_real_distribution<float> angle_dist(0.f, 6.2831853f);
+    float a = angle_dist(rng_);
+    wander_dir_ = { std::cos(a), std::sin(a) };
 }
 
 void Byt::sense_update(const World& world, Seconds dt) {
@@ -53,16 +56,17 @@ void Byt::sense_update(const World& world, Seconds dt) {
     }
 
     if (smell_timer_ >= cfg_.smell_cadence) {
-    smell_timer_ = 0.f;
-    std::vector<Perceived> buf;
-    world.query_in_radius(pos_, cfg_.smell_range, SenseMask::Smell, buf);
-    smelled_.clear();
-    smelled_.reserve(buf.size());
-    for (const auto& it : buf) {
-        if (it.kind == ObjectKind::Byt && it.id == id_) continue;
-        smelled_.push_back(Smelled{ it.kind, {it.pos.x, it.pos.y}, it.distance, it.id });
+        smell_timer_ = 0.f;
+        std::vector<Perceived> buf;
+        world.query_in_radius(pos_, cfg_.smell_range, SenseMask::Smell, buf);
+        smelled_.clear();
+        smelled_.reserve(buf.size());
+        for (const auto& it : buf) {
+            if (it.kind == ObjectKind::Byt && it.id == id_) continue;
+            smelled_.push_back(Smelled{ it.kind, {it.pos.x, it.pos.y}, it.distance, it.id });
+        }
     }
-}
+    update_food_memory(dt);
 }
 
 
@@ -86,16 +90,11 @@ void Byt::decide_behavior() {
     }
 }
 
-void Byt::add_energy(float amount) noexcept {
-    brain_.stored_energy = std::min(1.f, brain_.stored_energy + amount);
-}
+void Byt::update_food_memory(Seconds dt) {
+    if (foodTargetMemory_.active) {
+        foodTargetMemory_.age += dt;
+    }
 
-sf::Vector2f Byt::do_wander(float /*dt*/) {
-    std::normal_distribution<float> N(0.f, 1.f);
-    return { N(rng_) * gains_.wander, N(rng_) * gains_.wander };
-}
-
-sf::Vector2f Byt::do_forage(float /*dt*/) {
     const Seen* nearest_seen = nullptr;
     for (const auto& s : seen_) {
         if (s.kind == ObjectKind::Food) {
@@ -106,11 +105,11 @@ sf::Vector2f Byt::do_forage(float /*dt*/) {
     }
 
     if (nearest_seen) {
-        sf::Vector2f to{ nearest_seen->pos.x - pos_.x, nearest_seen->pos.y - pos_.y };
-        float L2 = to.x*to.x + to.y*to.y;
-        if (L2 < 1e-6f) return {0.f, 0.f};
-        float invL = 1.0f / std::sqrt(L2);
-        return { to.x * invL * gains_.forage, to.y * invL * gains_.forage };
+        foodTargetMemory_.active = true;
+        foodTargetMemory_.id = nearest_seen->id;
+        foodTargetMemory_.pos = nearest_seen->pos;
+        foodTargetMemory_.age = 0.f;
+        return;
     }
 
     const Smelled* nearest_smelled = nullptr;
@@ -123,14 +122,122 @@ sf::Vector2f Byt::do_forage(float /*dt*/) {
     }
 
     if (nearest_smelled) {
-        sf::Vector2f to{ nearest_smelled->pos.x - pos_.x, nearest_smelled->pos.y - pos_.y };
-        float L2 = to.x*to.x + to.y*to.y;
-        if (L2 < 1e-6f) return {0.f, 0.f};
-        float invL = 1.0f / std::sqrt(L2);
-        return { to.x * invL * gains_.forage * 0.7f, to.y * invL * gains_.forage * 0.7f };
+        foodTargetMemory_.active = true;
+        foodTargetMemory_.id = nearest_smelled->id;
+        foodTargetMemory_.pos = nearest_smelled->pos;
+        foodTargetMemory_.age = 0.f;
+        return;
     }
 
-    return do_wander(0.f);
+    if (foodTargetMemory_.active && foodTargetMemory_.age > memory_persistance_) {
+        foodTargetMemory_.active = false;
+    }
+}
+
+void Byt::add_energy(float amount) noexcept {
+    brain_.stored_energy = std::min(1.f, brain_.stored_energy + amount);
+}
+
+sf::Vector2f Byt::do_wander(float dt) {
+    wander_change_timer_ -= dt;
+
+    if (wander_change_timer_ <= 0.f) {
+        std::uniform_real_distribution<float> angle_dist(-0.8f, 0.8f);
+
+        float angle = angle_dist(rng_);
+        float cs = std::cos(angle);
+        float sn = std::sin(angle);
+
+        sf::Vector2f d = wander_dir_;
+        wander_dir_ = {
+            d.x * cs - d.y * sn,
+            d.x * sn + d.y * cs
+        };
+
+        float L2 = wander_dir_.x * wander_dir_.x + wander_dir_.y * wander_dir_.y;
+        if (L2 > 1e-6f) {
+            float invL = 1.f / std::sqrt(L2);
+            wander_dir_.x *= invL;
+            wander_dir_.y *= invL;
+        } else {
+            wander_dir_ = {1.f, 0.f};
+        }
+
+        std::uniform_real_distribution<float> t_dist(0.6f, 1.8f);
+        wander_change_timer_ = t_dist(rng_);
+    }
+
+    return { wander_dir_.x * gains_.wander, wander_dir_.y * gains_.wander };
+}
+
+sf::Vector2f Byt::do_forage(float dt) {
+    // 1) Best evidence: visible food right now
+    const Seen* nearest_seen = nullptr;
+    for (const auto& s : seen_) {
+        if (s.kind == ObjectKind::Food) {
+            if (!nearest_seen || s.distance < nearest_seen->distance) {
+                nearest_seen = &s;
+            }
+        }
+    }
+
+    if (nearest_seen) {
+        return steer_towards(pos_, nearest_seen->pos, gains_.forage);
+    }
+
+    // 2) No visible food: investigate remembered location
+    if (foodTargetMemory_.active) {
+        sf::Vector2f to{
+            foodTargetMemory_.pos.x - pos_.x,
+            foodTargetMemory_.pos.y - pos_.y
+        };
+
+        float dist2 = to.x*to.x + to.y*to.y;
+
+        // If we've basically reached the remembered location and still
+        // don't see food, give up on this memory and switch to search.
+        const float reached_radius = 12.f;
+        if (dist2 <= reached_radius * reached_radius) {
+            foodTargetMemory_.active = false;
+        } else {
+            return steer_towards(pos_, foodTargetMemory_.pos, gains_.forage * 0.8f);
+        }
+    }
+
+    // 3) No current food and no valid memory: search, don't jitter
+    // Hungry search should feel more purposeful than neutral wander.
+    wander_change_timer_ -= dt;
+
+    if (wander_change_timer_ <= 0.f) {
+        // Smaller angle changes than neutral -> steadier search heading
+        std::uniform_real_distribution<float> angle_dist(-0.45f, 0.45f);
+        float angle = angle_dist(rng_);
+
+        float cs = std::cos(angle);
+        float sn = std::sin(angle);
+
+        sf::Vector2f d = wander_dir_;
+        wander_dir_ = {
+            d.x * cs - d.y * sn,
+            d.x * sn + d.y * cs
+        };
+
+        float L2 = wander_dir_.x*wander_dir_.x + wander_dir_.y*wander_dir_.y;
+        if (L2 > 1e-6f) {
+            float invL = 1.f / std::sqrt(L2);
+            wander_dir_.x *= invL;
+            wander_dir_.y *= invL;
+        } else {
+            wander_dir_ = {1.f, 0.f};
+        }
+
+        // Hold heading a bit longer while searching
+        std::uniform_real_distribution<float> t_dist(0.9f, 1.8f);
+        wander_change_timer_ = t_dist(rng_);
+    }
+
+    return { wander_dir_.x * gains_.forage * 0.55f,
+             wander_dir_.y * gains_.forage * 0.55f };
 }
 
 sf::Vector2f Byt::do_seek_companion(float /*dt*/) {
