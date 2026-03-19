@@ -2,6 +2,8 @@
 #include <SFML/System/Vector2.hpp>
 #include <vector>
 #include <random>
+#include <optional>
+#include <cstdint>
 #include "SenseMask.hpp"
 
 namespace byts {
@@ -12,11 +14,44 @@ class Byt {
 public:
     using Seconds = float;
 
-    Byt(float size = 6.f)
-        : size_(size) {}
+    Byt(sf::Vector2f p = {0.f, 0.f}, float size = 6.f)
+        : size_(size), pos_(p) {}
 
     enum class Mood { Neutral, Hungry, Lonely };
     enum class Behavior { Wander, Forage, SeekCompanion };
+    enum class MemoryKind {
+        Food,
+        Byt,
+        FoodArea,   // later
+        Danger,
+        Sound
+    };
+    enum class MemoryNature {
+        Object,
+        Place
+    };
+    enum class SenseSource : std::uint8_t {
+        None    = 0,
+        Sight   = 1 << 0,
+        Hearing = 1 << 1,
+        Smell   = 1 << 2
+    };
+
+
+    struct Memory {
+        MemoryKind kind;
+        MemoryNature nature;
+
+        std::optional<std::size_t> object_id; // only for Object
+
+        sf::Vector2f pos{};
+
+        float confidence = 0.f;
+        float age = 0.f;
+        float ttl = 5.f;
+
+        std::uint8_t sources = 0; // bitmask (Sight, Smell, etc.)
+    };
 
     struct Brain {
         float stored_energy = 1.f;   // 0..1
@@ -28,13 +63,6 @@ public:
 
         float energy_drain_per_sec = 0.02f;
         float food_energy_gain     = 0.35f;
-    };
-
-    struct FoodTargetMemory {
-        bool active = false;
-        std::size_t id = 0;
-        sf::Vector2f pos{0.f, 0.f};
-        float age = 0.f;
     };
 
     struct SensesConfig {
@@ -77,11 +105,7 @@ public:
     const SteeringGains& gains() const noexcept { return gains_; }
 
     // debug access
-    Mood mood() const noexcept { return mood_; }
-    Behavior behavior() const noexcept { return behavior_; }
     float energy() const noexcept { return brain_.stored_energy; }
-
-    explicit Byt(sf::Vector2f p) : pos_(p) {}
 
     void add_energy(float amount) noexcept;
     void sense_update(const World& world, Seconds dt);
@@ -112,18 +136,13 @@ private:
     sf::Vector2f wander_dir_{1.f, 0.f};
     float        max_speed_ = 20.f;
     Seconds wander_change_timer_{0.f};
-    float memory_persistance_{10.f};
-
     std::mt19937 rng_{0xB17}; // seed updated via set_id()
 
     // steering config
     SteeringGains gains_;
 
     // —— state ——
-    Mood      mood_{Mood::Neutral};        // hard-coded neutral to start
-    Behavior  behavior_{Behavior::Wander}; // derived from mood_
     Brain     brain_;
-    FoodTargetMemory foodTargetMemory_;
 
     // Sense state/buffers
     SensesConfig     cfg_;
@@ -134,35 +153,28 @@ private:
     std::vector<Heard> heard_;
     std::vector<Smelled> smelled_;
 
+    std::vector<Memory> memories_;
+
     // helpers
+    void update_memories(float dt);
     void decide_mood();                     // mood → behavior
     void decide_behavior();
-    void update_food_memory(Seconds dt);
+    Memory* find_matching_memory(MemoryKind kind,
+                                  std::optional<std::size_t> object_id,
+                                  sf::Vector2f pos,
+                                  float merge_radius);
+    void add_or_update_memory(MemoryKind kind,
+                               std::optional<std::size_t> object_id,
+                               sf::Vector2f pos,
+                               std::uint8_t source_flag,
+                               float confidence_boost,
+                               float ttl,
+                               float merge_radius);
     sf::Vector2f do_wander(float dt);
     sf::Vector2f do_forage(float dt);
     sf::Vector2f do_seek_companion(float dt);
-    bool is_hungry() const noexcept { return brain_.stored_energy <= brain_.hunger_on; }
-    inline float len2(sf::Vector2f v) noexcept { return v.x*v.x + v.y*v.y; }
-
-    inline sf::Vector2f clamp_speed(sf::Vector2f v, float max_speed) noexcept {
-        const float max2 = max_speed * max_speed;
-        float L2 = len2(v);
-        if (L2 <= max2) return v;
-        float inv = max_speed / std::sqrt(L2);
-        return { v.x * inv, v.y * inv };
-    }
-    
-    inline sf::Vector2f steer_towards(sf::Vector2f from,
-                                      sf::Vector2f to,
-                                      float strength) noexcept
-    {
-        sf::Vector2f d{ to.x - from.x, to.y - from.y };
-        float L2 = d.x*d.x + d.y*d.y;
-        if (L2 < 1e-6f) return {0.f, 0.f};
-    
-        float invL = 1.f / std::sqrt(L2);
-        return { d.x * invL * strength, d.y * invL * strength };
-    }
+    bool is_hungry() const noexcept { return brain_.stored_energy <= brain_.hunger_on; };
+    sf::Vector2f steer_towards(sf::Vector2f from, sf::Vector2f to, float strength) noexcept;
 };
 
 } // namespace byts

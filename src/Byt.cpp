@@ -17,6 +17,15 @@ inline sf::Vector2f clamp_speed(sf::Vector2f v, float max_speed) noexcept {
 }
 } // namespace
 
+sf::Vector2f Byt::steer_towards(sf::Vector2f from, sf::Vector2f to, float strength) noexcept {
+    sf::Vector2f d{ to.x - from.x, to.y - from.y };
+    float L2 = d.x*d.x + d.y*d.y;
+    if (L2 < 1e-6f) return {0.f, 0.f};
+
+    float invL = 1.f / std::sqrt(L2);
+    return { d.x * invL * strength, d.y * invL * strength };
+}
+
 void Byt::set_id(std::size_t id) noexcept {
     id_ = id;
     std::seed_seq seed{ static_cast<unsigned>(0xB17), static_cast<unsigned>(id_) };
@@ -37,9 +46,18 @@ void Byt::sense_update(const World& world, Seconds dt) {
         world.query_in_radius(pos_, cfg_.sight_range, SenseMask::Visible, buf);
         seen_.clear();
         seen_.reserve(buf.size());
-        for (const auto& it : buf) {
-            if (it.kind == ObjectKind::Byt && it.id == id_) continue;
-            seen_.push_back(Seen{ it.kind, {it.pos.x, it.pos.y}, it.distance, it.id });
+        for (const auto& s : seen_) {
+            if (s.kind == ObjectKind::Food) {
+                add_or_update_memory(
+                    MemoryKind::Food,
+                    s.id,
+                    s.pos,
+                    static_cast<std::uint8_t>(SenseSource::Sight),
+                    0.6f,
+                    6.f,
+                    20.f
+                );
+            }
         }
     }
 
@@ -61,76 +79,114 @@ void Byt::sense_update(const World& world, Seconds dt) {
         world.query_in_radius(pos_, cfg_.smell_range, SenseMask::Smell, buf);
         smelled_.clear();
         smelled_.reserve(buf.size());
-        for (const auto& it : buf) {
-            if (it.kind == ObjectKind::Byt && it.id == id_) continue;
-            smelled_.push_back(Smelled{ it.kind, {it.pos.x, it.pos.y}, it.distance, it.id });
+        for (const auto& s : smelled_) {
+            if (s.kind == ObjectKind::Food) {
+                add_or_update_memory(
+                    MemoryKind::Food,
+                    s.id, // still useful!
+                    s.pos,
+                    static_cast<std::uint8_t>(SenseSource::Smell),
+                    0.25f,
+                    10.f,
+                    40.f
+                );
+            }
         }
     }
-    update_food_memory(dt);
 }
 
-
-void Byt::decide_mood() {
-    if (brain_.stored_energy <= brain_.hunger_on) {
-        mood_ = Mood::Hungry;
+Byt::Memory* Byt::find_matching_memory(MemoryKind kind,
+                                       std::optional<std::size_t> object_id,
+                                       sf::Vector2f pos,
+                                       float merge_radius)
+{
+    if (object_id.has_value()) {
+        for (auto& m : memories_) {
+            if (m.kind == kind && m.object_id == object_id) {
+                return &m;
+            }
+        }
     }
-    else if (brain_.social_need >= brain_.social_on) {
-        mood_ = Mood::Lonely;
+
+    float best_dist2 = merge_radius * merge_radius;
+    Memory* best = nullptr;
+
+    for (auto& m : memories_) {
+        if (m.kind != kind) continue;
+        if (m.object_id.has_value()) continue;
+
+        sf::Vector2f d{ m.pos.x - pos.x, m.pos.y - pos.y };
+        float dist2 = d.x*d.x + d.y*d.y;
+
+        if (dist2 < best_dist2) {
+            best_dist2 = dist2;
+            best = &m;
+        }
+    }
+
+    return best;
+}
+
+void Byt::add_or_update_memory(MemoryKind kind,
+                               std::optional<std::size_t> object_id,
+                               sf::Vector2f pos,
+                               std::uint8_t source_flag,
+                               float confidence_boost,
+                               float ttl,
+                               float merge_radius)
+{
+    Memory* m = find_matching_memory(kind, object_id, pos, merge_radius);
+
+    if (m) {
+        // --- UPDATE EXISTING ---
+        m->age = 0.f;
+        m->ttl = std::max(m->ttl, ttl);
+
+        // Confidence accumulates but clamps
+        m->confidence = std::min(1.f, m->confidence + confidence_boost);
+
+        // Position update
+        if (object_id.has_value()) {
+            // precise → overwrite
+            m->pos = pos;
+        } else {
+            // fuzzy → blend
+            float alpha = 0.3f;
+            m->pos.x = m->pos.x * (1.f - alpha) + pos.x * alpha;
+            m->pos.y = m->pos.y * (1.f - alpha) + pos.y * alpha;
+        }
+
+        m->sources |= source_flag;
     }
     else {
-        mood_ = Mood::Neutral;
+        // --- CREATE NEW ---
+        Memory mem;
+        mem.kind = kind;
+        mem.nature = object_id.has_value() ? MemoryNature::Object
+                                           : MemoryNature::Place;
+        mem.object_id = object_id;
+        mem.pos = pos;
+        mem.confidence = confidence_boost;
+        mem.age = 0.f;
+        mem.ttl = ttl;
+        mem.sources = source_flag;
+
+        memories_.push_back(mem);
     }
 }
 
-void Byt::decide_behavior() {
-    switch (mood_) {
-        case Mood::Neutral:  behavior_ = Behavior::Wander;        break;
-        case Mood::Hungry:   behavior_ = Behavior::Forage;        break;
-        case Mood::Lonely:   behavior_ = Behavior::SeekCompanion; break;
-    }
-}
+void Byt::update_memories(float dt) {
+    for (auto it = memories_.begin(); it != memories_.end(); ) {
+        it->age += dt;
 
-void Byt::update_food_memory(Seconds dt) {
-    if (foodTargetMemory_.active) {
-        foodTargetMemory_.age += dt;
-    }
+        // decay confidence
+        it->confidence -= dt * 0.1f;
 
-    const Seen* nearest_seen = nullptr;
-    for (const auto& s : seen_) {
-        if (s.kind == ObjectKind::Food) {
-            if (!nearest_seen || s.distance < nearest_seen->distance) {
-                nearest_seen = &s;
-            }
+        if (it->age > it->ttl || it->confidence <= 0.f) {
+            it = memories_.erase(it);
+        } else {
+            ++it;
         }
-    }
-
-    if (nearest_seen) {
-        foodTargetMemory_.active = true;
-        foodTargetMemory_.id = nearest_seen->id;
-        foodTargetMemory_.pos = nearest_seen->pos;
-        foodTargetMemory_.age = 0.f;
-        return;
-    }
-
-    const Smelled* nearest_smelled = nullptr;
-    for (const auto& s : smelled_) {
-        if (s.kind == ObjectKind::Food) {
-            if (!nearest_smelled || s.distance < nearest_smelled->distance) {
-                nearest_smelled = &s;
-            }
-        }
-    }
-
-    if (nearest_smelled) {
-        foodTargetMemory_.active = true;
-        foodTargetMemory_.id = nearest_smelled->id;
-        foodTargetMemory_.pos = nearest_smelled->pos;
-        foodTargetMemory_.age = 0.f;
-        return;
-    }
-
-    if (foodTargetMemory_.active && foodTargetMemory_.age > memory_persistance_) {
-        foodTargetMemory_.active = false;
     }
 }
 
@@ -171,13 +227,14 @@ sf::Vector2f Byt::do_wander(float dt) {
 }
 
 sf::Vector2f Byt::do_forage(float dt) {
-    // 1) Best evidence: visible food right now
+    // 1) Best case: food visible right now
     const Seen* nearest_seen = nullptr;
+
     for (const auto& s : seen_) {
-        if (s.kind == ObjectKind::Food) {
-            if (!nearest_seen || s.distance < nearest_seen->distance) {
-                nearest_seen = &s;
-            }
+        if (s.kind != ObjectKind::Food) continue;
+
+        if (!nearest_seen || s.distance < nearest_seen->distance) {
+            nearest_seen = &s;
         }
     }
 
@@ -185,31 +242,49 @@ sf::Vector2f Byt::do_forage(float dt) {
         return steer_towards(pos_, nearest_seen->pos, gains_.forage);
     }
 
-    // 2) No visible food: investigate remembered location
-    if (foodTargetMemory_.active) {
-        sf::Vector2f to{
-            foodTargetMemory_.pos.x - pos_.x,
-            foodTargetMemory_.pos.y - pos_.y
-        };
+    // 2) Otherwise: use best remembered food
+    const Memory* best_food_memory = nullptr;
+    float best_score = -1.f;
 
-        float dist2 = to.x*to.x + to.y*to.y;
+    for (const auto& m : memories_) {
+        if (m.kind != MemoryKind::Food) continue;
 
-        // If we've basically reached the remembered location and still
-        // don't see food, give up on this memory and switch to search.
-        const float reached_radius = 12.f;
-        if (dist2 <= reached_radius * reached_radius) {
-            foodTargetMemory_.active = false;
-        } else {
-            return steer_towards(pos_, foodTargetMemory_.pos, gains_.forage * 0.8f);
+        sf::Vector2f d{ m.pos.x - pos_.x, m.pos.y - pos_.y };
+        float dist2 = d.x * d.x + d.y * d.y;
+
+        // score = confidence, slightly reduced by distance
+        float score = m.confidence / (1.f + std::sqrt(dist2));
+
+        if (!best_food_memory || score > best_score) {
+            best_food_memory = &m;
+            best_score = score;
         }
     }
 
-    // 3) No current food and no valid memory: search, don't jitter
-    // Hungry search should feel more purposeful than neutral wander.
+    if (best_food_memory) {
+        sf::Vector2f to{
+            best_food_memory->pos.x - pos_.x,
+            best_food_memory->pos.y - pos_.y
+        };
+
+        float dist2 = to.x * to.x + to.y * to.y;
+
+        // If we've basically reached the remembered place and still
+        // don't see food, stop trusting that memory.
+        const float reached_radius = 12.f;
+        if (dist2 <= reached_radius * reached_radius) {
+            // We cannot erase through a const pointer, so just fall through
+            // to search for now. Later we can add memory invalidation properly.
+        } else {
+            return steer_towards(pos_, best_food_memory->pos, gains_.forage * 0.8f);
+        }
+    }
+
+    // 3) No visible or usable memory: hungry search wander
     wander_change_timer_ -= dt;
 
     if (wander_change_timer_ <= 0.f) {
-        // Smaller angle changes than neutral -> steadier search heading
+        // Smaller direction changes than idle wander = more purposeful
         std::uniform_real_distribution<float> angle_dist(-0.45f, 0.45f);
         float angle = angle_dist(rng_);
 
@@ -222,7 +297,7 @@ sf::Vector2f Byt::do_forage(float dt) {
             d.x * sn + d.y * cs
         };
 
-        float L2 = wander_dir_.x*wander_dir_.x + wander_dir_.y*wander_dir_.y;
+        float L2 = wander_dir_.x * wander_dir_.x + wander_dir_.y * wander_dir_.y;
         if (L2 > 1e-6f) {
             float invL = 1.f / std::sqrt(L2);
             wander_dir_.x *= invL;
@@ -236,14 +311,16 @@ sf::Vector2f Byt::do_forage(float dt) {
         wander_change_timer_ = t_dist(rng_);
     }
 
-    return { wander_dir_.x * gains_.forage * 0.55f,
-             wander_dir_.y * gains_.forage * 0.55f };
+    return {
+        wander_dir_.x * gains_.forage * 0.55f,
+        wander_dir_.y * gains_.forage * 0.55f
+    };
 }
 
-sf::Vector2f Byt::do_seek_companion(float /*dt*/) {
+sf::Vector2f Byt::do_seek_companion(float dt) {
     int n = 0; sf::Vector2f c{0.f,0.f};
     for (const auto& s : seen_) if (s.kind == ObjectKind::Byt) { ++n; c.x += s.pos.x; c.y += s.pos.y; }
-    if (n == 0) return do_wander(0.f);
+    if (n == 0) return do_wander(dt);
 
     c.x /= n; c.y /= n;
     sf::Vector2f to{ c.x - pos_.x, c.y - pos_.y };
@@ -258,14 +335,14 @@ void Byt::step(Seconds dt) noexcept {
     if (brain_.stored_energy < 0.f) {
         brain_.stored_energy = 0.f;
     }
-    decide_mood();
-    decide_behavior();
+
+    update_memories(dt);
 
     sf::Vector2f force{0.f, 0.f};
 
-    // ---- Always-on: gentle personal space (emergent “separation”) ----
     for (const auto& s : seen_) {
         if (s.kind != ObjectKind::Byt) continue;
+
         sf::Vector2f away{ pos_.x - s.pos.x, pos_.y - s.pos.y };
         float d2 = away.x*away.x + away.y*away.y;
         const float min_d2 = 16.f;
@@ -279,12 +356,12 @@ void Byt::step(Seconds dt) noexcept {
         force.y += away.y * gains_.personal_space;
     }
 
-    // ---- Behavior-specific steering ----
     sf::Vector2f b{0.f, 0.f};
-    switch (behavior_) {
-        case Behavior::Wander:        b = do_wander(dt);         break;
-        case Behavior::Forage:        b = do_forage(dt);         break;
-        case Behavior::SeekCompanion: b = do_seek_companion(dt); break;
+
+    if (is_hungry()) {
+        b = do_forage(dt);
+    } else {
+        b = do_wander(dt);
     }
 
     force.x += b.x;
