@@ -36,7 +36,13 @@ public:
         Hearing = 1 << 1,
         Smell   = 1 << 2
     };
-
+    enum class Intention {
+        Idle,
+        SearchFood,
+        MoveToFoodVisible,
+        MoveToFoodMemory,
+        SeekCompanion
+    };
 
     struct Memory {
         MemoryKind kind;
@@ -57,12 +63,16 @@ public:
         float stored_energy = 1.f;   // 0..1
         float social_need   = 0.f;   // 0..1
 
+        float hunger_drive  = 0.f;   // 0..1
+        float social_drive  = 0.f;   // 0..1
+
         float hunger_on     = 0.6f;
         float critical_on   = 0.2f;
         float social_on     = 0.6f;
 
         float energy_drain_per_sec = 0.02f;
         float food_energy_gain     = 0.35f;
+        float social_rise_per_sec  = 0.03f;
     };
 
     struct SensesConfig {
@@ -95,11 +105,13 @@ public:
     };
 
     // tweak gains externally?
-    struct SteeringGains { 
-        float personal_space    = 150.f, 
-        wander                  = 100.f, 
-        forage                  = 400.f, 
-        companion               = 35.f; 
+    struct SteeringGains {
+       float personal_space = 150.f;
+       float idle = 100.f;
+       float search_food = 180.f;
+       float visible_food = 400.f;
+       float memory_food = 320.f;
+       float companion = 35.f;
     };
     SteeringGains& gains() noexcept { return gains_; }
     const SteeringGains& gains() const noexcept { return gains_; }
@@ -143,6 +155,7 @@ private:
 
     // —— state ——
     Brain     brain_;
+    Intention intention_{Intention::Idle};
 
     // Sense state/buffers
     SensesConfig     cfg_;
@@ -157,12 +170,11 @@ private:
 
     // helpers
     void update_memories(float dt);
-    void decide_mood();                     // mood → behavior
-    void decide_behavior();
     Memory* find_matching_memory(MemoryKind kind,
                                   std::optional<std::size_t> object_id,
                                   sf::Vector2f pos,
                                   float merge_radius);
+
     void add_or_update_memory(MemoryKind kind,
                                std::optional<std::size_t> object_id,
                                sf::Vector2f pos,
@@ -170,11 +182,15 @@ private:
                                float confidence_boost,
                                float ttl,
                                float merge_radius);
-    sf::Vector2f do_wander(float dt);
-    sf::Vector2f do_forage(float dt);
-    sf::Vector2f do_seek_companion(float dt);
-    bool is_hungry() const noexcept { return brain_.stored_energy <= brain_.hunger_on; };
-    sf::Vector2f steer_towards(sf::Vector2f from, sf::Vector2f to, float strength) noexcept;
-};
+    void update_internal_needs(Seconds dt);
+    void choose_intention();
+
+    sf::Vector2f steer_idle(Seconds dt);
+    sf::Vector2f steer_search_food(Seconds dt);
+    sf::Vector2f steer_to_visible_food() const;
+    sf::Vector2f steer_to_food_memory(Seconds dt);
+    sf::Vector2f steer_to_companion(Seconds dt);
+    
+    sf::Vector2f steer_towards(sf::Vector2f from, sf::Vector2f to, float strength) const noexcept;};
 
 } // namespace byts
