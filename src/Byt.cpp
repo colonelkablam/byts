@@ -256,6 +256,23 @@ void Byt::choose_intention() {
     intention_ = Intention::Idle;
 }
 
+const char* Byt::intent_to_string(Intention i) {
+    static const char* names[] = {
+        "Idle",
+        "SearchFood",
+        "MoveToFoodVisible",
+        "MoveToFoodMemory",
+        "SeekCompanion",
+        "Count"
+    };
+
+    int idx = static_cast<int>(i);
+    if (idx < 0 || idx >= static_cast<int>(Intention::Count))
+        return "Unknown";
+
+    return names[idx];
+}
+
 void Byt::add_energy(float amount) noexcept
 {
     brain_.stored_energy = std::min(1.f, brain_.stored_energy + amount);

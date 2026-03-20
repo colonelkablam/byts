@@ -3,16 +3,23 @@
 
 using namespace byts;
 
-static void draw_ring(sf::RenderWindow& win, sf::Vector2f center, float r, sf::Color outline) {
-    sf::CircleShape ring;
-    ring.setPointCount(64);
+static void draw_ring(sf::RenderWindow& win,
+                      sf::CircleShape& ring,
+                      sf::Vector2f center,
+                      float r,
+                      sf::Text& label,
+                      sf::Color outline)
+{
     ring.setRadius(r);
     ring.setOrigin(r, r);
     ring.setPosition(center);
-    ring.setFillColor(sf::Color::Transparent);
-    ring.setOutlineThickness(1.f);
     ring.setOutlineColor(outline);
     win.draw(ring);
+
+    sf::FloatRect bounds = label.getLocalBounds();
+    label.setOrigin(bounds.width / 2.f, 0.f);
+    label.setPosition(center.x, center.y - r + 2.f);
+    win.draw(label);
 }
 
 static void draw_energy_text(sf::RenderWindow& win,
@@ -24,6 +31,16 @@ static void draw_energy_text(sf::RenderWindow& win,
     std::snprintf(buf, sizeof(buf), "%.2f", energy);
     text.setString(buf);
     text.setPosition(pos.x + 6.f, pos.y - 10.f);
+    win.draw(text);
+}
+
+static void draw_debug_text(sf::RenderWindow& win,
+                            sf::Text& text,
+                            sf::Vector2f pos,
+                            const char* label = "intent")
+{
+    text.setString(label);
+    text.setPosition(pos.x + 6.f, pos.y + 10.f);
     win.draw(text);
 }
 
@@ -41,23 +58,51 @@ static void draw_object_circle(sf::RenderWindow& win,
     win.draw(shape);
 }
 
+static void set_default_text(sf::Text& text,
+                             const sf::Font& font,
+                             const std::string& label = "u",
+                             unsigned size = 14)
+{
+    text.setFont(font);
+    text.setCharacterSize(size);
+    text.setFillColor(sf::Color::White);
+    text.setString(label);
+}
+
 int main() {
     const float W = 1280.f, H = 1024.f;
     sf::RenderWindow win(sf::VideoMode((unsigned)W,(unsigned)H), "Byts debug");
     win.setFramerateLimit(120);
 
+    sf::CircleShape ring;
+    ring.setPointCount(64);
+    ring.setFillColor(sf::Color::Transparent);
+    ring.setOutlineThickness(1.f);
+    
     sf::Font font;
     if (!font.loadFromFile("assets/DejaVuSans.ttf")) {
         return 1;
     }
-    sf::Text energyText;
-    energyText.setFont(font);
-    energyText.setCharacterSize(10);
-    energyText.setFillColor(sf::Color::White);
+
+    sf::Text energy_text;
+    set_default_text(energy_text, font, "", 10);
+
+    sf::Text intent_text;
+    set_default_text(intent_text, font, "", 10);
+
+    sf::Text sight_label;
+    set_default_text(sight_label, font, "sight", 8);
+
+    sf::Text smell_label;
+    set_default_text(smell_label, font, "smell", 8);
+
+    sf::Text hearing_label;
+    set_default_text(hearing_label, font, "hearing", 8);
+
 
     World world{W, H};
-    world.spawn_byts(1);
-    world.spawn_food(1, 0.35f, 6);
+    world.spawn_byts(2);
+    world.spawn_food(6, 0.35f, 6);
     
     sf::CircleShape bytDot(3.f);  bytDot.setOrigin(3.f,3.f);  bytDot.setFillColor(sf::Color::White);
     sf::CircleShape objectShape;
@@ -76,15 +121,17 @@ int main() {
         win.clear(sf::Color(40,100,20));
 
         for (const auto& b : world.byts()) {
-            // byt dot
+            // byt dot 
             bytDot.setPosition(b.pos());
             win.draw(bytDot);
 
             // DEBUG: sight (green) + hearing (blue) radii
-            draw_ring(win, b.pos(), b.senses().sight_range,   sf::Color(0,255,0,120));
-            draw_ring(win, b.pos(), b.senses().hearing_range, sf::Color(0,128,255,120));
-            draw_ring(win, b.pos(), b.senses().smell_range,   sf::Color(255,100,255,100));
-            draw_energy_text(win, energyText, b.pos(), b.energy());
+            draw_ring(win, ring, b.pos(), b.senses().sight_range, sight_label, sf::Color(0,255,0,120));
+            draw_ring(win, ring, b.pos(), b.senses().hearing_range, hearing_label, sf::Color(0,128,255,120));
+            draw_ring(win, ring, b.pos(), b.senses().smell_range, smell_label, sf::Color(255,100,255,100));
+            draw_energy_text(win, energy_text, b.pos(), b.energy());
+            draw_debug_text(win, intent_text, b.pos(), b.intent());
+
         }
 
         // draw food

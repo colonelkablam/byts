@@ -41,7 +41,8 @@ public:
         SearchFood,
         MoveToFoodVisible,
         MoveToFoodMemory,
-        SeekCompanion
+        SeekCompanion,
+        Count
     };
 
     struct Memory {
@@ -71,7 +72,6 @@ public:
         float social_on     = 0.6f;
 
         float energy_drain_per_sec = 0.02f;
-        float food_energy_gain     = 0.35f;
         float social_rise_per_sec  = 0.03f;
     };
 
@@ -118,6 +118,9 @@ public:
 
     // debug access
     float energy() const noexcept { return brain_.stored_energy; }
+    const char* intent() const noexcept {
+        return intent_to_string(intention_);
+    }
 
     void add_energy(float amount) noexcept;
     void sense_update(const World& world, Seconds dt);
@@ -184,6 +187,7 @@ private:
                                float merge_radius);
     void update_internal_needs(Seconds dt);
     void choose_intention();
+    static const char* intent_to_string(Intention i);
 
     sf::Vector2f steer_idle(Seconds dt);
     sf::Vector2f steer_search_food(Seconds dt);
