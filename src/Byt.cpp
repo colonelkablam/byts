@@ -3,7 +3,6 @@
 #include <cmath>
 #include <algorithm>
 #include <random>
-#include "byts/Byt.hpp"
 
 namespace byts {
 
@@ -28,14 +27,14 @@ void Byt::set_id(std::size_t id) noexcept {
 }
 
 void Byt::sense_update(const World& world, Seconds dt) {
-    sight_timer_   += dt;
-    hearing_timer_ += dt;
-    smell_timer_   += dt;
+    sense_.sight_timer   += dt;
+    sense_.hearing_timer += dt;
+    sense_.smell_timer   += dt;
 
-    if (sight_timer_ >= cfg_.sight_cadence) {
-        sight_timer_ = 0.f;
+    if (sense_.sight_timer >= senses_.sight_cadence) {
+        sense_.sight_timer = 0.f;
         std::vector<Perceived> buf;
-        world.query_in_radius(pos_, cfg_.sight_range, SenseMask::Visible, buf);
+        world.query_in_radius(pos_, senses_.sight_range, SenseMask::Visible, buf);
 
         seen_.clear();
         seen_.reserve(buf.size());
@@ -59,10 +58,10 @@ void Byt::sense_update(const World& world, Seconds dt) {
         }
     }
 
-    if (hearing_timer_ >= cfg_.hearing_cadence) {
-        hearing_timer_ = 0.f;
+    if (sense_.hearing_timer >= senses_.hearing_cadence) {
+        sense_.hearing_timer = 0.f;
         std::vector<Perceived> buf;
-        world.query_in_radius(pos_, cfg_.hearing_range, SenseMask::Audible, buf);
+        world.query_in_radius(pos_, senses_.hearing_range, SenseMask::Audible, buf);
 
         heard_.clear();
         heard_.reserve(buf.size());
@@ -74,31 +73,29 @@ void Byt::sense_update(const World& world, Seconds dt) {
         }
     }
 
-    if (smell_timer_ >= cfg_.smell_cadence) {
-        smell_timer_ = 0.f;
+    if (sense_.smell_timer >= senses_.smell_cadence) {
+        sense_.smell_timer = 0.f;
         std::vector<Perceived> buf;
-        world.query_in_radius(pos_, cfg_.smell_range, SenseMask::Smell, buf);
-
+        world.query_in_radius(pos_, senses_.smell_range, SenseMask::Smell, buf);
+    
         smelled_.clear();
         smelled_.reserve(buf.size());
-
+    
+        float total_food_smell = 0.f;
+    
         for (const auto& it : buf) {
             if (it.kind == ObjectKind::Byt && it.id == id_) continue;
-
+        
             smelled_.push_back(Smelled{ it.kind, {it.pos.x, it.pos.y}, it.distance, it.id });
-
+        
             if (it.kind == ObjectKind::Food) {
-                add_or_update_memory(
-                    MemoryKind::Food,
-                    it.id,
-                    {it.pos.x, it.pos.y},
-                    static_cast<std::uint8_t>(SenseSource::Smell),
-                    0.25f,
-                    10.f,
-                    40.f
-                );
+                float strength = 1.f - (it.distance / senses_.smell_range);
+                if (strength < 0.f) strength = 0.f;
+                total_food_smell += strength;
             }
         }
+        smell_.food_strength = total_food_smell;
+        smell_.sample_updated = true;
     }
 }
 
@@ -237,29 +234,50 @@ void Byt::choose_intention() {
         }
     }
 
-    if (brain_.hunger_drive >= brain_.hunger_on) {
+    bool smells_food = smell_.food_strength > behaviour_.smell_interest_threshold;
+
+    Intention next = Intention::Idle;
+
+    if (brain_.hunger_drive >= behaviour_.hunger_on) {
         if (sees_food) {
-            intention_ = Intention::MoveToFoodVisible;
+            next = Intention::MoveToFoodVisible;
         } else if (has_food_memory) {
-            intention_ = Intention::MoveToFoodMemory;
+            next = Intention::MoveToFoodMemory;
+        } else if (smells_food) {
+            next = Intention::SeekFoodSmell;
         } else {
-            intention_ = Intention::SearchFood;
+            next = Intention::SearchFood;
         }
-        return;
+    }
+    else if (brain_.social_drive >= behaviour_.social_on && sees_byt) {
+        next = Intention::SeekCompanion;
     }
 
-    if (brain_.social_drive >= brain_.social_on && sees_byt) {
-        intention_ = Intention::SeekCompanion;
-        return;
+    if (next != intention_) {
+        enter_intention(next);
     }
 
-    intention_ = Intention::Idle;
+    intention_ = next;
+}
+
+void Byt::enter_intention(Intention next) {
+    switch (next) {
+        case Intention::SeekFoodSmell:
+            smell_.dir = wander_dir_;
+            smell_.prev_food_strength = smell_.food_strength;
+            smell_.sample_updated = false;
+            smell_.probe_timer = 0.f;
+            break;
+        default:
+            break;
+    }
 }
 
 const char* Byt::intent_to_string(Intention i) {
     static const char* names[] = {
         "Idle",
         "SearchFood",
+        "SeekFoodSmell",
         "MoveToFoodVisible",
         "MoveToFoodMemory",
         "SeekCompanion",
@@ -273,12 +291,21 @@ const char* Byt::intent_to_string(Intention i) {
     return names[idx];
 }
 
-void Byt::add_energy(float amount) noexcept
-{
+std::vector<sf::Vector2f> Byt::food_memory_positions() const {
+    std::vector<sf::Vector2f> result;
+    for (const auto& m : memories_) {
+        if (m.kind == MemoryKind::Food) {
+            result.push_back(m.pos);
+        }
+    }
+    return result;
+}
+
+void Byt::add_energy(float amount) noexcept {
     brain_.stored_energy = std::min(1.f, brain_.stored_energy + amount);
 }
 
-void Byt::step(Seconds dt) noexcept {
+void Byt::step(Seconds dt, sf::Vector2f world_size) noexcept {
     update_memories(dt);
     update_internal_needs(dt);
     choose_intention();
@@ -286,21 +313,14 @@ void Byt::step(Seconds dt) noexcept {
     sf::Vector2f force{0.f, 0.f};
 
     // always-on separation
-    for (const auto& s : seen_) {
-        if (s.kind != ObjectKind::Byt) continue;
+    sf::Vector2f sep = steer_away_from_other_byts();
+    force.x += sep.x;
+    force.y += sep.y;
 
-        sf::Vector2f away{ pos_.x - s.pos.x, pos_.y - s.pos.y };
-        float d2 = away.x * away.x + away.y * away.y;
-        const float min_d2 = 16.f;
-        if (d2 < min_d2) d2 = min_d2;
+    sf::Vector2f edge_force = steer_away_from_edges(world_size);
+    force.x += edge_force.x;
+    force.y += edge_force.y;
 
-        float inv_d = 1.0f / std::sqrt(d2);
-        away.x *= inv_d * inv_d;
-        away.y *= inv_d * inv_d;
-
-        force.x += away.x * gains_.personal_space;
-        force.y += away.y * gains_.personal_space;
-    }
 
     sf::Vector2f b{0.f, 0.f};
 
@@ -310,6 +330,9 @@ void Byt::step(Seconds dt) noexcept {
             break;
         case Intention::SearchFood:
             b = steer_search_food(dt);
+            break;
+        case Intention::SeekFoodSmell:
+            b = steer_follow_food_smell(dt);
             break;
         case Intention::MoveToFoodVisible:
             b = steer_to_visible_food();
@@ -328,6 +351,62 @@ void Byt::step(Seconds dt) noexcept {
     vel_.x += force.x * dt;
     vel_.y += force.y * dt;
     vel_ = clamp_speed(vel_, max_speed_);
+}
+
+sf::Vector2f Byt::steer_away_from_edges(sf::Vector2f world_size) const {
+    sf::Vector2f force{0.f, 0.f};
+
+    // left edge
+    if (pos_.x < edge_margin) {
+        float t = 1.f - (pos_.x / edge_margin);
+        force.x += t * gains_.edge_avoid;
+    }
+
+    // right edge
+    if (pos_.x > world_size.x - edge_margin) {
+        float dist = world_size.x - pos_.x;
+        float t = 1.f - (dist / edge_margin);
+        force.x -= t * gains_.edge_avoid;
+    }
+
+    // top edge
+    if (pos_.y < edge_margin) {
+        float t = 1.f - (pos_.y / edge_margin);
+        force.y += t * gains_.edge_avoid;
+    }
+
+    // bottom edge
+    if (pos_.y > world_size.y - edge_margin) {
+        float dist = world_size.y - pos_.y;
+        float t = 1.f - (dist / edge_margin);
+        force.y -= t * gains_.edge_avoid;
+    }
+
+    return force;
+}
+
+sf::Vector2f Byt::steer_away_from_other_byts() const {
+    sf::Vector2f force{0.f, 0.f};
+
+    for (const auto& s : seen_) {
+        if (s.kind != ObjectKind::Byt) continue;
+
+        sf::Vector2f away{ pos_.x - s.pos.x, pos_.y - s.pos.y };
+        float d2 = away.x * away.x + away.y * away.y;
+
+        const float min_d2 = 16.f;
+        if (d2 < min_d2) d2 = min_d2;
+
+        float inv_d = 1.f / std::sqrt(d2);
+
+        away.x *= inv_d * inv_d;
+        away.y *= inv_d * inv_d;
+
+        force.x += away.x * gains_.personal_space;
+        force.y += away.y * gains_.personal_space;
+    }
+
+    return force;
 }
 
 sf::Vector2f Byt::steer_idle(Seconds dt) {
@@ -409,6 +488,46 @@ sf::Vector2f Byt::steer_search_food(Seconds dt) {
     return {
         wander_dir_.x * gains_.search_food,
         wander_dir_.y * gains_.search_food
+    };
+}
+
+sf::Vector2f Byt::steer_follow_food_smell(Seconds dt) {
+
+    if (smell_.sample_updated) {
+        smell_.sample_updated = false;
+
+        if (smell_.food_strength > smell_.prev_food_strength) {
+            // smell improved: keep current heading
+        } else {
+            // smell worse or unchanged: adjust heading
+            std::uniform_real_distribution<float> angle_dist(-0.9f, 0.9f);
+            float angle = angle_dist(rng_);
+
+            float cs = std::cos(angle);
+            float sn = std::sin(angle);
+
+            sf::Vector2f d = smell_.dir;
+            smell_.dir = {
+                d.x * cs - d.y * sn,
+                d.x * sn + d.y * cs
+            };
+
+            float L2 = smell_.dir.x * smell_.dir.x + smell_.dir.y * smell_.dir.y;
+            if (L2 > 1e-6f) {
+                float invL = 1.f / std::sqrt(L2);
+                smell_.dir.x *= invL;
+                smell_.dir.y *= invL;
+            } else {
+                smell_.dir = {1.f, 0.f};
+            }
+        }
+
+        smell_.prev_food_strength = smell_.food_strength;
+    }
+
+    return {
+        smell_.dir.x * gains_.search_food,
+        smell_.dir.y * gains_.search_food
     };
 }
 

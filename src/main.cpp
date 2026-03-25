@@ -40,7 +40,7 @@ static void draw_debug_text(sf::RenderWindow& win,
                             const char* label = "intent")
 {
     text.setString(label);
-    text.setPosition(pos.x + 6.f, pos.y + 10.f);
+    text.setPosition(pos.x + 6.f, pos.y + 5.f);
     win.draw(text);
 }
 
@@ -56,6 +56,32 @@ static void draw_object_circle(sf::RenderWindow& win,
     shape.setFillColor(c);
 
     win.draw(shape);
+}
+
+static void draw_debug_dot(sf::RenderWindow& win,
+                           sf::CircleShape& shape,
+                           sf::Vector2f pos,
+                           float r = 2.f,
+                           sf::Color c = sf::Color::Magenta)
+{
+    shape.setRadius(r);
+    shape.setOrigin(r, r);
+    shape.setPosition(pos);
+    shape.setFillColor(c);
+
+    win.draw(shape);
+}
+
+static void draw_debug_line(sf::RenderWindow& win,
+                            sf::Vector2f a,
+                            sf::Vector2f b,
+                            sf::Color c = sf::Color::Magenta)
+{
+    sf::Vertex line[] = {
+        sf::Vertex(a, c),
+        sf::Vertex(b, c)
+    };
+    win.draw(line, 2, sf::Lines);
 }
 
 static void set_default_text(sf::Text& text,
@@ -99,10 +125,13 @@ int main() {
     sf::Text hearing_label;
     set_default_text(hearing_label, font, "hearing", 8);
 
+    sf::CircleShape debugDot;
+    debugDot.setPointCount(16);
+
 
     World world{W, H};
-    world.spawn_byts(2);
-    world.spawn_food(6, 0.35f, 6);
+    world.spawn_byts(3);
+    world.spawn_food(12, 0.35f, 6);
     
     sf::CircleShape bytDot(3.f);  bytDot.setOrigin(3.f,3.f);  bytDot.setFillColor(sf::Color::White);
     sf::CircleShape objectShape;
@@ -120,6 +149,17 @@ int main() {
 
         win.clear(sf::Color(40,100,20));
 
+        // draw food
+        for (const auto& obj : world.objects()) {
+            draw_object_circle(
+                win,
+                objectShape,
+                obj->pos(),
+                obj->size(),
+                obj->color()
+            );
+        }
+
         for (const auto& b : world.byts()) {
             // byt dot 
             bytDot.setPosition(b.pos());
@@ -132,17 +172,11 @@ int main() {
             draw_energy_text(win, energy_text, b.pos(), b.energy());
             draw_debug_text(win, intent_text, b.pos(), b.intent());
 
-        }
+            for (const auto& pos : b.food_memory_positions()) {
+                draw_debug_dot(win, debugDot, pos, 3.f, sf::Color::Magenta);
+                draw_debug_line(win, b.pos(), pos, sf::Color(255, 0, 255, 60));
+            }
 
-        // draw food
-        for (const auto& obj : world.objects()) {
-            draw_object_circle(
-                win,
-                objectShape,
-                obj->pos(),
-                obj->size(),
-                obj->color()
-            );
         }
 
         win.display();

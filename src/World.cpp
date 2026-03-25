@@ -109,7 +109,7 @@ void World::update(float dt) {
     for (auto& b : byts_) b.sense_update(*this, dt);
 
     // 2) Decision/behaviour
-    for (auto& b : byts_) b.step(dt);
+    for (auto& b : byts_) b.step(dt, {w_, h_});
 
     // 3) Integrate & boundaries
     for (auto& b : byts_) {
