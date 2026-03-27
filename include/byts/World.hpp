@@ -12,7 +12,7 @@ public:
     World(float w, float h) : w_(w), h_(h) {}
 
     void spawn_byts(std::size_t n);
-    void spawn_food(std::size_t n, float energy = 0.35f, float size = 5.f);
+    void spawn_food(std::size_t n, float energy = 0.35f, float smell_strength = 1.f, float size = 5.f);
     
     // sense → step → integrate → boundaries
     void update(float dt);
@@ -31,7 +31,7 @@ public:
                            float size,
                            sf::Color color = sf::Color::White);
 
-    std::size_t add_food(sf::Vector2f pos, float energy, float size);
+    std::size_t add_food(sf::Vector2f pos, float energy, float smell_strength, float size);
     
     // Access
     const std::vector<Byt>& byts() const noexcept { return byts_; }

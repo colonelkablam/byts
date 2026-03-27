@@ -31,6 +31,7 @@ void Byt::sense_update(const World& world, Seconds dt) {
     sense_.hearing_timer += dt;
     sense_.smell_timer   += dt;
 
+    // SIGHT
     if (sense_.sight_timer >= senses_.sight_cadence) {
         sense_.sight_timer = 0.f;
         std::vector<Perceived> buf;
@@ -42,7 +43,7 @@ void Byt::sense_update(const World& world, Seconds dt) {
         for (const auto& it : buf) {
             if (it.kind == ObjectKind::Byt && it.id == id_) continue;
 
-            seen_.push_back(Seen{ it.kind, {it.pos.x, it.pos.y}, it.distance, it.id });
+            seen_.push_back(Seen{ it.kind, {it.pos.x, it.pos.y}, it.distance, it.id, it.visual_strength});
 
             if (it.kind == ObjectKind::Food) {
                 add_or_update_memory(
@@ -51,13 +52,14 @@ void Byt::sense_update(const World& world, Seconds dt) {
                     {it.pos.x, it.pos.y},
                     static_cast<std::uint8_t>(SenseSource::Sight),
                     0.6f,
-                    6.f,
+                    10.f,
                     20.f
                 );
             }
         }
     }
 
+    // HEARING
     if (sense_.hearing_timer >= senses_.hearing_cadence) {
         sense_.hearing_timer = 0.f;
         std::vector<Perceived> buf;
@@ -69,32 +71,34 @@ void Byt::sense_update(const World& world, Seconds dt) {
         for (const auto& it : buf) {
             if (it.kind == ObjectKind::Byt && it.id == id_) continue;
 
-            heard_.push_back(Heard{ it.kind, {it.pos.x, it.pos.y}, it.distance, it.id });
+            heard_.push_back(Heard{ it.kind, {it.pos.x, it.pos.y}, it.distance, it.id, it.auditory_strength});
         }
     }
 
+    // SMELL
     if (sense_.smell_timer >= senses_.smell_cadence) {
         sense_.smell_timer = 0.f;
         std::vector<Perceived> buf;
         world.query_in_radius(pos_, senses_.smell_range, SenseMask::Smell, buf);
-    
+
         smelled_.clear();
         smelled_.reserve(buf.size());
-    
-        float total_food_smell = 0.f;
-    
+
+        float food_smell_strength = 0.f;
+
         for (const auto& it : buf) {
             if (it.kind == ObjectKind::Byt && it.id == id_) continue;
-        
-            smelled_.push_back(Smelled{ it.kind, {it.pos.x, it.pos.y}, it.distance, it.id });
-        
+
+            smelled_.push_back(
+                Smelled{ it.kind, {it.pos.x, it.pos.y}, it.distance, it.id, it.olfactory_strength }
+            );
+
             if (it.kind == ObjectKind::Food) {
-                float strength = 1.f - (it.distance / senses_.smell_range);
-                if (strength < 0.f) strength = 0.f;
-                total_food_smell += strength;
+                food_smell_strength += it.olfactory_strength;
             }
         }
-        smell_.food_strength = total_food_smell;
+
+        smell_.food_strength = food_smell_strength;
         smell_.sample_updated = true;
     }
 }
@@ -492,16 +496,31 @@ sf::Vector2f Byt::steer_search_food(Seconds dt) {
 }
 
 sf::Vector2f Byt::steer_follow_food_smell(Seconds dt) {
-
     if (smell_.sample_updated) {
         smell_.sample_updated = false;
 
         if (smell_.food_strength > smell_.prev_food_strength) {
-            // smell improved: keep current heading
+            // smell improved: keep heading, reset failure time
+            smell_.fail_time = 0.f;
         } else {
-            // smell worse or unchanged: adjust heading
-            std::uniform_real_distribution<float> angle_dist(-0.9f, 0.9f);
-            float angle = angle_dist(rng_);
+            // smell worse or unchanged: continue turning in one direction
+            smell_.fail_time += dt;
+
+            // after a while, swap direction
+            if (smell_.fail_time > 1.2f) {
+                smell_.turn_sign *= -1.f;
+                smell_.fail_time = 0.f;
+            }
+            
+            // You can make the turn sharper when the smell drops more:
+            float delta = smell_.food_strength - smell_.prev_food_strength;
+            float turn_amount = 0.15f;
+
+            if (delta < 0.f) {
+                turn_amount = std::min(0.6f, 0.15f + (-delta * 2.0f));
+            }
+
+            float angle = turn_amount * smell_.turn_sign;
 
             float cs = std::cos(angle);
             float sn = std::sin(angle);

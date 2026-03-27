@@ -104,6 +104,8 @@ public:
         float food_strength = 0.f;
         float prev_food_strength = 0.f;
         bool sample_updated = false;
+        float turn_sign = 1.f;          // +1 or -1
+        float fail_time = 0.f;          // how long smell has not improved
 
         sf::Vector2f dir{1.f, 0.f};
         float probe_timer = 0.f;
@@ -114,18 +116,22 @@ public:
         sf::Vector2f pos;
         float        distance;
         std::size_t  id;
+        float visual_strength;
     };
     struct Heard {
         ObjectKind   kind;
         sf::Vector2f pos;
         float        distance;
         std::size_t  id;
+        float loudness;
+    
     };
     struct Smelled {
         ObjectKind   kind;
         sf::Vector2f pos;
         float        distance;
         std::size_t  id;
+        float smell_strength;
     };
 
     struct SteeringGains {

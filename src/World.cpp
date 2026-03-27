@@ -18,33 +18,69 @@ void World::query_in_radius(sf::Vector2f center,
     out.clear();
     const float r2 = radius * radius;
 
+    auto falloff = [&](float distance) -> float {
+        float f = 1.f - (distance / radius);
+        return (f < 0.f) ? 0.f : f;
+    };
+
     auto consider = [&](ObjectKind kind,
                         std::size_t id,
                         sf::Vector2f pos,
-                        SenseMask perceptible_by)
+                        SenseMask perceptible_by,
+                        float visual_emission,
+                        float loudness_emission,
+                        float smell_emission)
     {
         if (!has(perceptible_by, sense)) return;
+
         sf::Vector2f d{ pos.x - center.x, pos.y - center.y };
         float d2 = len2(d);
-        if (d2 <= r2) {
-            out.push_back(Perceived{
-                kind,
-                std::sqrt(d2),
-                id,
-                { pos.x, pos.y }
-            });
+        if (d2 > r2) return;
+
+        float distance = std::sqrt(d2);
+        float f = falloff(distance);
+
+        Perceived p{
+            kind,
+            distance,
+            id,
+            { pos.x, pos.y },
+            0.f, // visual_strength
+            0.f, // loudness
+            0.f  // smell_strength
+        };
+
+        if (sense == SenseMask::Visible) {
+            p.visual_strength = visual_emission * f;
         }
+        else if (sense == SenseMask::Audible) {
+            p.auditory_strength = loudness_emission * f;
+        }
+        else if (sense == SenseMask::Smell) {
+            p.olfactory_strength = smell_emission * f;
+        }
+
+        out.push_back(p);
     };
 
-    // Byts (visible + audible)
     for (std::size_t i = 0; i < byts_.size(); ++i) {
-        consider(ObjectKind::Byt, byts_[i].id(), byts_[i].pos(),
-                 SenseMask::Visible | SenseMask::Audible);
+        consider(ObjectKind::Byt,
+                 byts_[i].id(),
+                 byts_[i].pos(),
+                 SenseMask::Visible | SenseMask::Audible,
+                 1.f,   // visual emission
+                 0.4f,  // loudness emission for now
+                 0.f);  // smell emission for now
     }
 
-    // Generic world objects
     for (const auto& obj : objects_) {
-        consider(obj->kind(), obj->id(), obj->pos(), obj->perceptible_by());
+        consider(obj->kind(),
+                 obj->id(),
+                 obj->pos(),
+                 obj->perceptible_by(),
+                 obj->visibility(),
+                 obj->loudness(),
+                 obj->smell());
     }
 }
 
@@ -70,12 +106,12 @@ std::size_t World::add_object(ObjectKind kind,
     return id;
 }
 
-std::size_t World::add_food(sf::Vector2f pos, float energy, float size) {
+std::size_t World::add_food(sf::Vector2f pos, float energy, float scent, float size) {
 
     std::size_t id = next_object_id_++;
 
     objects_.push_back(
-        std::make_unique<FoodObject>(pos, id, energy, size)
+        std::make_unique<FoodObject>(pos, id, energy, scent, size)
     );
 
     return id;
@@ -95,12 +131,12 @@ void World::spawn_byts(std::size_t n) {
     }
 }
 
-void World::spawn_food(std::size_t n, float energy, float size) {
+void World::spawn_food(std::size_t n, float energy, float scent, float size) {
     std::mt19937 rng(54321u);
     std::uniform_real_distribution<float> dx(0.f, w_), dy(0.f, h_);
 
     for (std::size_t i = 0; i < n; ++i) {
-        add_food({ dx(rng), dy(rng) }, energy, size);
+        add_food({ dx(rng), dy(rng) }, energy, scent, size);
     }
 }
 

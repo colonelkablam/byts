@@ -6,7 +6,7 @@ namespace byts {
 
 class FoodObject : public WorldObject {
 public:
-    FoodObject(sf::Vector2f pos, std::size_t id, float energy, float size)
+    FoodObject(sf::Vector2f pos, std::size_t id, float energy, float smell_strength, float size)
         : WorldObject(
             ObjectKind::Food,
             pos,
@@ -14,7 +14,9 @@ public:
             false,                 // not solid
             size,                  // size
             sf::Color(255,180,0),  // colour
-            id
+            id,
+            smell_strength,
+            0.f // currently 0 volume on food
           ),
           energy_(energy)
     {}

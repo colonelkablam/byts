@@ -131,7 +131,7 @@ int main() {
 
     World world{W, H};
     world.spawn_byts(3);
-    world.spawn_food(12, 0.35f, 6);
+    world.spawn_food(12, 0.35f, 0.5f, 6);
     
     sf::CircleShape bytDot(3.f);  bytDot.setOrigin(3.f,3.f);  bytDot.setFillColor(sf::Color::White);
     sf::CircleShape objectShape;

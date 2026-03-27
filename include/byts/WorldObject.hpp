@@ -13,14 +13,21 @@ public:
                 bool solid,
                 float size,
                 sf::Color color,
-                std::size_t id)
+                std::size_t id,
+                float visibility = 1.f,
+                float smell_strength = 0.f,
+                float loudness = 0.f)
+                
         : kind_(kind),
           pos_(pos),
           perceptible_by_(perceptible_by),
           solid_(solid),
           size_(size),
           color_(color),
-          id_(id) {}
+          id_(id),
+          smell_strength_(smell_strength),
+          loudness_(loudness)
+    {}
 
     virtual ~WorldObject() = default;
 
@@ -33,6 +40,10 @@ public:
     float size() const noexcept { return size_; }
     sf::Color color() const noexcept { return color_; }
 
+    float visibility() const noexcept { return visibility_; }
+    float smell() const noexcept { return smell_strength_; }
+    float loudness() const noexcept { return loudness_; }
+
 protected:
     ObjectKind kind_;
     sf::Vector2f pos_;
@@ -41,6 +52,10 @@ protected:
     float size_;
     sf::Color color_;
     std::size_t id_;
+
+    float visibility_;
+    float smell_strength_;
+    float loudness_;
 };
 
 } // namespace byts

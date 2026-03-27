@@ -31,6 +31,9 @@ struct Perceived {
     float        distance; // precomputed for convenience
     std::size_t  id;       // stable id (unique per object type pool)
     struct { float x, y; } pos; // avoid pulling SFML into headers that don't need it
+    float visual_strength = 0.f;
+    float auditory_strength = 0.f;
+    float olfactory_strength = 0.f;
 };
 
 } // namespace byts
