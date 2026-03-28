@@ -514,7 +514,7 @@ sf::Vector2f Byt::steer_follow_food_smell(Seconds dt) {
             
             // You can make the turn sharper when the smell drops more:
             float delta = smell_.food_strength - smell_.prev_food_strength;
-            float turn_amount = 0.15f;
+            float turn_amount = 2.f;
 
             if (delta < 0.f) {
                 turn_amount = std::min(0.6f, 0.15f + (-delta * 2.0f));
@@ -545,8 +545,8 @@ sf::Vector2f Byt::steer_follow_food_smell(Seconds dt) {
     }
 
     return {
-        smell_.dir.x * gains_.search_food,
-        smell_.dir.y * gains_.search_food
+        smell_.dir.x * gains_.follow_food_smell,
+        smell_.dir.y * gains_.follow_food_smell
     };
 }
 
