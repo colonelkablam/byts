@@ -152,6 +152,8 @@ public:
     const char* intent() const noexcept {
         return intent_to_string(intention_);
     }
+    float food_smell_strength() const noexcept { return smell_.food_strength; }
+    float food_smell_threshold() const noexcept { return behaviour_.smell_interest_threshold; }
     std::vector<sf::Vector2f> food_memory_positions() const;
 
     void add_energy(float amount) noexcept;

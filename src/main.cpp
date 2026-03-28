@@ -1,5 +1,9 @@
 #include <SFML/Graphics.hpp>
+#include <sstream>
+#include <iomanip>
+
 #include "byts/World.hpp"
+
 
 using namespace byts;
 
@@ -22,22 +26,10 @@ static void draw_ring(sf::RenderWindow& win,
     win.draw(label);
 }
 
-static void draw_energy_text(sf::RenderWindow& win,
-                             sf::Text& text,
-                             sf::Vector2f pos,
-                             float energy)
-{
-    char buf[16];
-    std::snprintf(buf, sizeof(buf), "%.2f", energy);
-    text.setString(buf);
-    text.setPosition(pos.x + 6.f, pos.y - 10.f);
-    win.draw(text);
-}
-
 static void draw_debug_text(sf::RenderWindow& win,
                             sf::Text& text,
                             sf::Vector2f pos,
-                            const char* label = "intent")
+                            const std::string& label)
 {
     text.setString(label);
     text.setPosition(pos.x + 6.f, pos.y + 5.f);
@@ -95,6 +87,18 @@ static void set_default_text(sf::Text& text,
     text.setString(label);
 }
 
+static std::string make_byt_debug_text(const Byt& b)
+{
+    std::ostringstream ss;
+    ss << std::fixed << std::setprecision(2);
+    ss << "intent: " << b.intent() << '\n';
+    ss << "energy: " << b.energy() << '\n';
+    ss << "food smell: " << b.food_smell_strength()
+       << " (?> " << b.food_smell_threshold() << ")";
+
+    return ss.str();
+}
+
 int main() {
     const float W = 1280.f, H = 1024.f;
     sf::RenderWindow win(sf::VideoMode((unsigned)W,(unsigned)H), "Byts debug");
@@ -109,9 +113,6 @@ int main() {
     if (!font.loadFromFile("assets/DejaVuSans.ttf")) {
         return 1;
     }
-
-    sf::Text energy_text;
-    set_default_text(energy_text, font, "", 10);
 
     sf::Text intent_text;
     set_default_text(intent_text, font, "", 10);
@@ -169,8 +170,7 @@ int main() {
             draw_ring(win, ring, b.pos(), b.senses().sight_range, sight_label, sf::Color(0,255,0,120));
             draw_ring(win, ring, b.pos(), b.senses().hearing_range, hearing_label, sf::Color(0,128,255,120));
             draw_ring(win, ring, b.pos(), b.senses().smell_range, smell_label, sf::Color(255,100,255,100));
-            draw_energy_text(win, energy_text, b.pos(), b.energy());
-            draw_debug_text(win, intent_text, b.pos(), b.intent());
+            draw_debug_text(win, intent_text, b.pos(), make_byt_debug_text(b));
 
             for (const auto& pos : b.food_memory_positions()) {
                 draw_debug_dot(win, debugDot, pos, 3.f, sf::Color::Magenta);

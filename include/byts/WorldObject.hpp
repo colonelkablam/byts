@@ -25,6 +25,7 @@ public:
           size_(size),
           color_(color),
           id_(id),
+          visibility_(visibility),
           smell_strength_(smell_strength),
           loudness_(loudness)
     {}
