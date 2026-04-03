@@ -118,25 +118,31 @@ std::size_t World::add_food(sf::Vector2f pos, float energy, float smell_strength
 }
 
 void World::spawn_byts(std::size_t n) {
-    std::mt19937 rng(22345u);
     std::uniform_real_distribution<float> dx(0.f, w_), dy(0.f, h_);
+
+    auto rand_pos = [&](void) {
+        return sf::Vector2f{ dx(rng_), dy(rng_) };
+    };
 
     const std::size_t start = byts_.size();
     byts_.reserve(start + n);
 
     for (std::size_t i = 0; i < n; ++i) {
-        Byt b({ dx(rng), dy(rng) });
+        Byt b(rand_pos());
         b.set_id(start + i + 1);
         byts_.push_back(b);
     }
 }
 
 void World::spawn_food(std::size_t n, float energy, float smell_strength, float size) {
-    std::mt19937 rng(54321u);
     std::uniform_real_distribution<float> dx(0.f, w_), dy(0.f, h_);
 
+    auto rand_pos = [&](void) {
+        return sf::Vector2f{ dx(rng_), dy(rng_) };
+    };
+
     for (std::size_t i = 0; i < n; ++i) {
-        add_food({ dx(rng), dy(rng) }, energy, smell_strength, size);
+        add_food(rand_pos(), energy, smell_strength, size);
     }
 }
 

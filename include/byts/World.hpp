@@ -9,7 +9,8 @@ namespace byts {
 
 class World {
 public:
-    World(float w, float h) : w_(w), h_(h) {}
+    World(float w, float h, uint32_t seed)
+        : w_(w), h_(h), rng_(seed) {}
 
     void spawn_byts(std::size_t n);
     void spawn_food(std::size_t n, float energy = 0.35f, float smell_strength = 1.f, float size = 5.f);
@@ -49,6 +50,7 @@ private:
     std::vector<Byt>         byts_;
     std::vector<std::unique_ptr<WorldObject>> objects_;
     std::size_t              next_object_id_{1}; // 0 reserved if needed
+    std::mt19937 rng_;
 
     void apply_boundaries(Byt& b) const noexcept; // simple bounce/wrap
 

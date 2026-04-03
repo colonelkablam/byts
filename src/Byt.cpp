@@ -23,7 +23,14 @@ void Byt::set_id(std::size_t id) noexcept {
     rng_.seed(seed);
     std::uniform_real_distribution<float> angle_dist(0.f, 6.2831853f);
     float a = angle_dist(rng_);
-    wander_dir_ = { std::cos(a), std::sin(a) };
+    heading_ = { std::cos(a), std::sin(a) };
+
+    if (intention_ == Intention::Idle) {
+        idle_.anchor = pos_;
+        idle_.anchor_set = true;
+        idle_.direction_timer = 0.f;
+        idle_.jiggle_dir = heading_;
+    }
 }
 
 void Byt::sense_update(const World& world, Seconds dt) {
@@ -265,16 +272,35 @@ void Byt::choose_intention() {
 }
 
 void Byt::enter_intention(Intention next) {
+    sf::Vector2f dir = current_heading();
+
     switch (next) {
+        case Intention::Idle:
+            idle_.anchor = pos_;
+            idle_.anchor_set = true;
+            idle_.pause_timer = 0.f;
+            idle_.direction_timer = 0.f;
+            idle_.jiggle_dir = dir;
+            break;
+
+        case Intention::SearchFood:
+            search_.dir = dir;
+            search_.leg_timer = 0.f; // force new leg setup on first update
+            break;
+
         case Intention::SeekFoodSmell:
-            smell_.dir = wander_dir_;
+            smell_.dir = dir;
             smell_.prev_food_strength = smell_.food_strength;
             smell_.sample_updated = false;
             smell_.probe_timer = 0.f;
+            smell_.fail_time = 0.f;
             break;
+
         default:
             break;
     }
+
+    intention_ = next;
 }
 
 const char* Byt::intent_to_string(Intention i) {
@@ -295,6 +321,18 @@ const char* Byt::intent_to_string(Intention i) {
     return names[idx];
 }
 
+float Byt::action_strength() const noexcept {
+    switch (intention_) {
+        case Intention::Idle:               return 45.f;
+        case Intention::SearchFood:         return 180.f;
+        case Intention::SeekFoodSmell:      return 200.f;
+        case Intention::MoveToFoodVisible:  return 400.f;
+        case Intention::MoveToFoodMemory:   return 320.f;
+        case Intention::SeekCompanion:      return 35.f;
+        default:                            return 100.f;
+    }
+}
+
 std::vector<sf::Vector2f> Byt::food_memory_positions() const {
     std::vector<sf::Vector2f> result;
     for (const auto& m : memories_) {
@@ -305,7 +343,8 @@ std::vector<sf::Vector2f> Byt::food_memory_positions() const {
     return result;
 }
 
-void Byt::add_energy(float amount) noexcept {
+void Byt::add_energy(float amount) noexcept
+{
     brain_.stored_energy = std::min(1.f, brain_.stored_energy + amount);
 }
 
@@ -363,27 +402,27 @@ sf::Vector2f Byt::steer_away_from_edges(sf::Vector2f world_size) const {
     // left edge
     if (pos_.x < edge_margin) {
         float t = 1.f - (pos_.x / edge_margin);
-        force.x += t * gains_.edge_avoid;
+        force.x += t * steering_.edge_avoid;
     }
 
     // right edge
     if (pos_.x > world_size.x - edge_margin) {
         float dist = world_size.x - pos_.x;
         float t = 1.f - (dist / edge_margin);
-        force.x -= t * gains_.edge_avoid;
+        force.x -= t * steering_.edge_avoid;
     }
 
     // top edge
     if (pos_.y < edge_margin) {
         float t = 1.f - (pos_.y / edge_margin);
-        force.y += t * gains_.edge_avoid;
+        force.y += t * steering_.edge_avoid;
     }
 
     // bottom edge
     if (pos_.y > world_size.y - edge_margin) {
         float dist = world_size.y - pos_.y;
         float t = 1.f - (dist / edge_margin);
-        force.y -= t * gains_.edge_avoid;
+        force.y -= t * steering_.edge_avoid;
     }
 
     return force;
@@ -406,92 +445,177 @@ sf::Vector2f Byt::steer_away_from_other_byts() const {
         away.x *= inv_d * inv_d;
         away.y *= inv_d * inv_d;
 
-        force.x += away.x * gains_.personal_space;
-        force.y += away.y * gains_.personal_space;
+        force.x += away.x * steering_.personal_space;
+        force.y += away.y * steering_.personal_space;
     }
 
     return force;
 }
 
-sf::Vector2f Byt::steer_idle(Seconds dt) {
-    // countdown until next direction change
-    wander_change_timer_ -= dt;
+sf::Vector2f Byt::current_heading() const noexcept {
+    float v2 = vel_.x * vel_.x + vel_.y * vel_.y;
 
-    if (wander_change_timer_ <= 0.f) {
-        // small random rotation (radians)
-        std::uniform_real_distribution<float> angle_dist(-0.6f, 0.6f);
+    if (v2 > 1e-6f) {
+        float inv = 1.f / std::sqrt(v2);
+        return { vel_.x * inv, vel_.y * inv };
+    }
+
+    return heading_; // fallback when basically stopped
+}
+
+sf::Vector2f Byt::steer_idle(Seconds dt) {
+    // occasionally adjust local drift direction
+    idle_.direction_timer -= dt;
+    if (idle_.direction_timer <= 0.f) {
+        std::uniform_real_distribution<float> angle_dist(
+            -idle_config_.max_turn_angle,
+             idle_config_.max_turn_angle
+        );
         float angle = angle_dist(rng_);
 
         float cs = std::cos(angle);
         float sn = std::sin(angle);
 
-        // rotate current direction
-        sf::Vector2f d = wander_dir_;
-        wander_dir_ = {
+        sf::Vector2f d = idle_.jiggle_dir;
+        idle_.jiggle_dir = {
             d.x * cs - d.y * sn,
             d.x * sn + d.y * cs
         };
 
-        // normalise (safety)
-        float L2 = wander_dir_.x * wander_dir_.x + wander_dir_.y * wander_dir_.y;
+        float L2 = idle_.jiggle_dir.x * idle_.jiggle_dir.x +
+                   idle_.jiggle_dir.y * idle_.jiggle_dir.y;
+
         if (L2 > 1e-6f) {
             float invL = 1.f / std::sqrt(L2);
-            wander_dir_.x *= invL;
-            wander_dir_.y *= invL;
+            idle_.jiggle_dir.x *= invL;
+            idle_.jiggle_dir.y *= invL;
         } else {
-            wander_dir_ = {1.f, 0.f};
+            idle_.jiggle_dir = {1.f, 0.f};
         }
 
-        // how long to keep this heading
-        std::uniform_real_distribution<float> time_dist(0.8f, 2.0f);
-        wander_change_timer_ = time_dist(rng_);
+        heading_ = idle_.jiggle_dir;
+
+        std::uniform_real_distribution<float> time_dist(
+            idle_config_.dir_time_min,
+            idle_config_.dir_time_max
+        );
+        idle_.direction_timer = time_dist(rng_);
     }
 
-    // constant forward push in wander direction
+    float strength = action_strength();
+
+    // gentle local drift
+    sf::Vector2f jiggle = {
+        idle_.jiggle_dir.x * strength,
+        idle_.jiggle_dir.y * strength
+    };
+
+    // pull back toward idle anchor so byt inhabits a local area
+    sf::Vector2f to_anchor = {
+        idle_.anchor.x - pos_.x,
+        idle_.anchor.y - pos_.y
+    };
+
+    float dist2 = to_anchor.x * to_anchor.x + to_anchor.y * to_anchor.y;
+    sf::Vector2f anchor_pull{0.f, 0.f};
+
+    float dead_zone2 = idle_config_.dead_zone_radius * idle_config_.dead_zone_radius;
+
+    if (dist2 > dead_zone2) {
+        float dist = std::sqrt(dist2);
+        float inv = 1.f / dist;
+
+        float leash = std::min(1.f, dist / idle_config_.leash_radius);
+
+        anchor_pull = {
+            to_anchor.x * inv * idle_config_.anchor_pull_strength * leash,
+            to_anchor.y * inv * idle_config_.anchor_pull_strength * leash
+        };
+    }
+
     return {
-        wander_dir_.x * gains_.idle,
-        wander_dir_.y * gains_.idle
+        jiggle.x + anchor_pull.x,
+        jiggle.y + anchor_pull.y
     };
 }
 
 sf::Vector2f Byt::steer_search_food(Seconds dt) {
-    // countdown until next direction adjustment
-    wander_change_timer_ -= dt;
+    search_.leg_timer -= dt;
 
-    if (wander_change_timer_ <= 0.f) {
-        // smaller turns than idle = more purposeful movement
-        std::uniform_real_distribution<float> angle_dist(-0.35f, 0.35f);
-        float angle = angle_dist(rng_);
+    // when a search leg ends, set up the next one
+    if (search_.leg_timer <= 0.f) {
+        std::uniform_real_distribution<float> leg_time_dist(
+            search_config_.leg_time_min,
+            search_config_.leg_time_max
+        );
+        search_.leg_timer = leg_time_dist(rng_);
+
+        // sometimes flip sweep direction
+        std::uniform_real_distribution<float> flip_roll(0.f, 1.f);
+        if (flip_roll(rng_) < search_config_.flip_chance) {
+            search_.turn_sign *= -1.f;
+        }
+
+        // occasional reorientation between legs
+        std::uniform_real_distribution<float> reorient_dist(
+            -search_config_.reorient_angle,
+             search_config_.reorient_angle
+        );
+        float angle = reorient_dist(rng_);
 
         float cs = std::cos(angle);
         float sn = std::sin(angle);
 
-        // rotate current heading
-        sf::Vector2f d = wander_dir_;
-        wander_dir_ = {
+        sf::Vector2f d = search_.dir;
+        search_.dir = {
             d.x * cs - d.y * sn,
             d.x * sn + d.y * cs
         };
 
-        // normalise
-        float L2 = wander_dir_.x * wander_dir_.x + wander_dir_.y * wander_dir_.y;
+        float L2 = search_.dir.x * search_.dir.x + search_.dir.y * search_.dir.y;
         if (L2 > 1e-6f) {
             float invL = 1.f / std::sqrt(L2);
-            wander_dir_.x *= invL;
-            wander_dir_.y *= invL;
+            search_.dir.x *= invL;
+            search_.dir.y *= invL;
         } else {
-            wander_dir_ = {1.f, 0.f};
+            search_.dir = current_heading();
         }
-
-        // hold heading longer than idle
-        std::uniform_real_distribution<float> time_dist(1.0f, 2.2f);
-        wander_change_timer_ = time_dist(rng_);
     }
 
-    // stronger forward push than idle wander
+    // while on the leg, keep applying a gentle sweep turn
+    std::uniform_real_distribution<float> noise_dist(
+        -search_config_.turn_noise,
+         search_config_.turn_noise
+    );
+
+    float turn_amount =
+        (search_config_.turn_bias * search_.turn_sign + noise_dist(rng_)) * dt;
+
+    float cs = std::cos(turn_amount);
+    float sn = std::sin(turn_amount);
+
+    sf::Vector2f d = search_.dir;
+    search_.dir = {
+        d.x * cs - d.y * sn,
+        d.x * sn + d.y * cs
+    };
+
+    float L2 = search_.dir.x * search_.dir.x + search_.dir.y * search_.dir.y;
+    if (L2 > 1e-6f) {
+        float invL = 1.f / std::sqrt(L2);
+        search_.dir.x *= invL;
+        search_.dir.y *= invL;
+    } else {
+        search_.dir = {1.f, 0.f};
+    }
+
+    heading_ = search_.dir;
+
+    float strength = action_strength();
+
     return {
-        wander_dir_.x * gains_.search_food,
-        wander_dir_.y * gains_.search_food
+        search_.dir.x * strength,
+        search_.dir.y * strength
     };
 }
 
@@ -511,10 +635,11 @@ sf::Vector2f Byt::steer_follow_food_smell(Seconds dt) {
                 smell_.turn_sign *= -1.f;
                 smell_.fail_time = 0.f;
             }
-            
-            // You can make the turn sharper when the smell drops more:
+
             float delta = smell_.food_strength - smell_.prev_food_strength;
-            float turn_amount = 2.f;
+
+            // base turn, sharper if smell dropped
+            float turn_amount = 0.15f;
 
             if (delta < 0.f) {
                 turn_amount = std::min(0.6f, 0.15f + (-delta * 2.0f));
@@ -537,16 +662,20 @@ sf::Vector2f Byt::steer_follow_food_smell(Seconds dt) {
                 smell_.dir.x *= invL;
                 smell_.dir.y *= invL;
             } else {
-                smell_.dir = {1.f, 0.f};
+                smell_.dir = current_heading();
             }
         }
 
         smell_.prev_food_strength = smell_.food_strength;
     }
 
+    heading_ = smell_.dir;
+
+    float strength = action_strength();
+
     return {
-        smell_.dir.x * gains_.follow_food_smell,
-        smell_.dir.y * gains_.follow_food_smell
+        smell_.dir.x * strength,
+        smell_.dir.y * strength
     };
 }
 
@@ -565,11 +694,12 @@ sf::Vector2f Byt::steer_to_visible_food() const {
         return {0.f, 0.f};
     }
 
-    return steer_towards(pos_, nearest_food->pos, gains_.visible_food);
+    return steer_towards(pos_, nearest_food->pos, action_strength());
 }
 
 sf::Vector2f Byt::steer_to_food_memory(Seconds dt) {
     (void)dt;
+
     const Memory* best_food_memory = nullptr;
     float best_score = -1.f;
 
@@ -599,13 +729,12 @@ sf::Vector2f Byt::steer_to_food_memory(Seconds dt) {
 
     float dist2 = to.x * to.x + to.y * to.y;
 
-    // close enough to the remembered location
     const float reached_radius = 12.f;
     if (dist2 <= reached_radius * reached_radius) {
         return {0.f, 0.f};
     }
 
-    return steer_towards(pos_, best_food_memory->pos, gains_.memory_food * 0.8f);
+    return steer_towards(pos_, best_food_memory->pos, action_strength());
 }
 
 sf::Vector2f Byt::steer_to_companion(Seconds dt) {
@@ -628,7 +757,7 @@ sf::Vector2f Byt::steer_to_companion(Seconds dt) {
     centre.x /= static_cast<float>(count);
     centre.y /= static_cast<float>(count);
 
-    return steer_towards(pos_, centre, gains_.companion);
+    return steer_towards(pos_, centre, action_strength());
 }
 
 sf::Vector2f Byt::steer_towards(sf::Vector2f from, sf::Vector2f to, float strength) const noexcept {    

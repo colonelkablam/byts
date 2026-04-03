@@ -89,12 +89,18 @@ static void set_default_text(sf::Text& text,
 
 static std::string make_byt_debug_text(const Byt& b)
 {
+    std::string t("false");
+    if (b.has_idle_anchor()) {
+        t = "true";
+    }
+
     std::ostringstream ss;
     ss << std::fixed << std::setprecision(2);
     ss << "intent: " << b.intent() << '\n';
     ss << "energy: " << b.energy() << '\n';
     ss << "food smell: " << b.food_smell_strength()
-       << " (?> " << b.food_smell_threshold() << ")";
+       << " (?> " << b.food_smell_threshold() << ")" << '\n';
+    ss << "idle anchor set: " << t;
 
     return ss.str();
 }
@@ -126,13 +132,16 @@ int main() {
     sf::Text hearing_label;
     set_default_text(hearing_label, font, "hearing", 8);
 
+    sf::Text idle_label;
+    set_default_text(idle_label, font, "hearing", 8);
+
     sf::CircleShape debugDot;
     debugDot.setPointCount(16);
 
 
-    World world{W, H};
-    world.spawn_byts(3);
-    world.spawn_food(12, 0.35f, 0.5f, 6);
+    World world{W, H, std::random_device{}()};
+    world.spawn_byts(1);
+    world.spawn_food(1, 0.35f, 0.5f, 6);
     
     sf::CircleShape bytDot(3.f);  bytDot.setOrigin(3.f,3.f);  bytDot.setFillColor(sf::Color::White);
     sf::CircleShape objectShape;
@@ -171,6 +180,10 @@ int main() {
             draw_ring(win, ring, b.pos(), b.senses().hearing_range, hearing_label, sf::Color(0,128,255,120));
             draw_ring(win, ring, b.pos(), b.senses().smell_range, smell_label, sf::Color(255,100,255,100));
             draw_debug_text(win, intent_text, b.pos(), make_byt_debug_text(b));
+
+            if (b.has_idle_anchor()) {
+                draw_ring(win, ring, b.idle_anchor(), b.idle_leash_radius(), idle_label, sf::Color(200,200,200,100));
+            }
 
             for (const auto& pos : b.food_memory_positions()) {
                 draw_debug_dot(win, debugDot, pos, 3.f, sf::Color::Magenta);

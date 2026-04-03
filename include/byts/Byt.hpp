@@ -15,7 +15,7 @@ public:
     using Seconds = float;
 
     Byt(sf::Vector2f p = {0.f, 0.f}, float size = 6.f)
-        : size_(size), pos_(p) {}
+        : size_(size), pos_(p), rng_(std::random_device{}()){}
 
     enum class Mood { Neutral, Hungry, Lonely };
     enum class Behavior { Wander, Forage, SeekCompanion };
@@ -83,7 +83,6 @@ public:
         float memory_confidence_threshold = 0.2f;
         float danger_flee_threshold = 0.8f;
     };
-
     struct SensesConfig {
         float sight_range     = 120.f;
         float hearing_range   = 80.f;
@@ -93,13 +92,35 @@ public:
         Seconds hearing_cadence = 0.20f;
         Seconds smell_cadence   = 0.15f;
     };
+    struct SteeringConfig {
+        float personal_space = 150.f;
+        float edge_avoid = 220.f;
+    };
+    struct IdleConfig {
+        float anchor_pull_strength = 35.f;
+
+        float max_turn_angle = 0.9f;
+        Seconds dir_time_min = 0.4f;
+        Seconds dir_time_max = 1.0f;
+
+        float dead_zone_radius = 6.f;
+        float leash_radius = 30.f;
+    };
+    struct SearchConfig {
+        Seconds leg_time_min = 1.2f;
+        Seconds leg_time_max = 3.0f;
+
+        float turn_bias = 0.7f;
+        float turn_noise = 0.15f;
+        float flip_chance = 0.30f;
+        float reorient_angle = 0.5f;
+    };
 
     struct SenseState {
         Seconds sight_timer = 0.f;
         Seconds hearing_timer = 0.f;
         Seconds smell_timer = 0.f;
     };
-
     struct SmellState {
         float food_strength = 0.f;
         float prev_food_strength = 0.f;
@@ -109,6 +130,22 @@ public:
 
         sf::Vector2f dir{1.f, 0.f};
         float probe_timer = 0.f;
+    };
+    
+    struct IdleState {
+        sf::Vector2f anchor{0.f, 0.f};
+        sf::Vector2f jiggle_dir{1.f, 0.f};
+
+        bool anchor_set = false;
+
+        Seconds direction_timer = 0.f;
+        Seconds pause_timer = 0.f;
+    };
+    struct SearchState {
+        sf::Vector2f dir{1.f, 0.f};
+
+        Seconds leg_timer = 0.f;
+        float turn_sign = 1.f;
     };
 
     struct Seen {
@@ -133,19 +170,15 @@ public:
         std::size_t  id;
         float smell_strength;
     };
+    
+    SteeringConfig& steering() noexcept { return steering_; }
+    const SteeringConfig& steering() const noexcept { return steering_; }
 
-    struct SteeringGains {
-        float personal_space = 150.f;
-        float edge_avoid = 220.f;
-        float idle = 100.f;
-        float search_food = 180.f;
-        float follow_food_smell = 200.f;
-        float visible_food = 400.f;
-        float memory_food = 320.f;
-        float companion = 35.f;
-    };
-    SteeringGains& gains() noexcept { return gains_; }
-    const SteeringGains& gains() const noexcept { return gains_; }
+    IdleConfig& idle_config() noexcept { return idle_config_; }
+    const IdleConfig& idle_config() const noexcept { return idle_config_; }
+
+    SearchConfig& search_config() noexcept { return search_config_; }
+    const SearchConfig& search_config() const noexcept { return search_config_; }
 
     // debug access
     float energy() const noexcept { return brain_.stored_energy; }
@@ -155,6 +188,9 @@ public:
     float food_smell_strength() const noexcept { return smell_.food_strength; }
     float food_smell_threshold() const noexcept { return behaviour_.smell_interest_threshold; }
     std::vector<sf::Vector2f> food_memory_positions() const;
+    sf::Vector2f idle_anchor() const noexcept { return idle_.anchor; }
+    bool has_idle_anchor() const noexcept { return idle_.anchor_set; }
+    float idle_leash_radius() const noexcept { return idle_config_.leash_radius; }
 
     void add_energy(float amount) noexcept;
     void sense_update(const World& world, Seconds dt);
@@ -182,25 +218,30 @@ private:
     std::size_t  id_{0};
     sf::Vector2f pos_{0.f, 0.f};
     sf::Vector2f vel_{0.f, 0.f};
-    sf::Vector2f wander_dir_{1.f, 0.f};
+    sf::Vector2f heading_{0.f, 0.f}; // memory of direction
+
     float        max_speed_ = 20.f;
     const float edge_margin = 40.f;
-    Seconds wander_change_timer_{0.f};
-    std::mt19937 rng_{0xB17}; // seed updated via set_id()
 
+    std::mt19937 rng_;
 
-    // steering config
-    SteeringGains gains_;
+    // config
+    BehaviourConfig behaviour_;
+    SensesConfig    senses_;
+    SteeringConfig steering_;
+    IdleConfig idle_config_;
+    SearchConfig search_config_;
 
-    // —— state ——
+    // state
     Brain     brain_;
     Intention intention_{Intention::Idle};
     SmellState smell_;
     SenseState sense_;
+    
+    IdleState  idle_;
+    SearchState search_;
 
-    // Sense state/buffers
-    BehaviourConfig behaviour_;
-    SensesConfig     senses_;
+    // Sense memory/buffers
     std::vector<Seen>  seen_;
     std::vector<Heard> heard_;
     std::vector<Smelled> smelled_;
@@ -225,9 +266,11 @@ private:
     void choose_intention();
     void enter_intention(Intention next);
     static const char* intent_to_string(Intention i);
+    float action_strength() const noexcept;
 
     sf::Vector2f steer_away_from_edges(sf::Vector2f world_size) const;
     sf::Vector2f steer_away_from_other_byts() const;
+    sf::Vector2f current_heading() const noexcept;
 
     sf::Vector2f steer_idle(Seconds dt);
     sf::Vector2f steer_search_food(Seconds dt);
