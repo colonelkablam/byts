@@ -32,10 +32,25 @@ static void draw_debug_text(sf::RenderWindow& win,
                             const std::string& label)
 {
     text.setString(label);
+    text.setOrigin(0.f, 0.f);
     text.setPosition(pos.x + 6.f, pos.y + 5.f);
     win.draw(text);
 }
 
+static void draw_debug_text_centered(sf::RenderWindow& win,
+                                     sf::Text& text,
+                                     sf::Vector2f pos,
+                                     const std::string& label)
+{
+    text.setString(label);
+
+    auto bounds = text.getLocalBounds();
+    text.setOrigin(bounds.left + bounds.width / 2.f,
+                   bounds.top + bounds.height / 2.f);
+    text.setPosition(pos);
+
+    win.draw(text);
+}
 static void draw_object_circle(sf::RenderWindow& win,
                         sf::CircleShape& shape,
                         sf::Vector2f center,
@@ -89,18 +104,14 @@ static void set_default_text(sf::Text& text,
 
 static std::string make_byt_debug_text(const Byt& b)
 {
-    std::string t("false");
-    if (b.has_idle_anchor()) {
-        t = "true";
-    }
-
     std::ostringstream ss;
-    ss << std::fixed << std::setprecision(2);
+    ss << std::fixed << std::setprecision(2) << std::boolalpha;
+    ss << "UID: " << b.id() << '\n';
     ss << "intent: " << b.intent() << '\n';
     ss << "energy: " << b.energy() << '\n';
     ss << "food smell: " << b.food_smell_strength()
        << " (?> " << b.food_smell_threshold() << ")" << '\n';
-    ss << "idle anchor set: " << t;
+    ss << "idle anchor set: " << b.has_idle_anchor();
 
     return ss.str();
 }
@@ -120,8 +131,8 @@ int main() {
         return 1;
     }
 
-    sf::Text intent_text;
-    set_default_text(intent_text, font, "", 10);
+    sf::Text debug_text;
+    set_default_text(debug_text, font, "", 10);
 
     sf::Text sight_label;
     set_default_text(sight_label, font, "sight", 8);
@@ -133,14 +144,14 @@ int main() {
     set_default_text(hearing_label, font, "hearing", 8);
 
     sf::Text idle_label;
-    set_default_text(idle_label, font, "hearing", 8);
+    set_default_text(idle_label, font, "idle\nanchor", 8);
 
     sf::CircleShape debugDot;
     debugDot.setPointCount(16);
 
 
     World world{W, H, std::random_device{}()};
-    world.spawn_byts(1);
+    world.spawn_byts(3);
     world.spawn_food(1, 0.35f, 0.5f, 6);
     
     sf::CircleShape bytDot(3.f);  bytDot.setOrigin(3.f,3.f);  bytDot.setFillColor(sf::Color::White);
@@ -179,10 +190,12 @@ int main() {
             draw_ring(win, ring, b.pos(), b.senses().sight_range, sight_label, sf::Color(0,255,0,120));
             draw_ring(win, ring, b.pos(), b.senses().hearing_range, hearing_label, sf::Color(0,128,255,120));
             draw_ring(win, ring, b.pos(), b.senses().smell_range, smell_label, sf::Color(255,100,255,100));
-            draw_debug_text(win, intent_text, b.pos(), make_byt_debug_text(b));
+            draw_debug_text(win, debug_text, b.pos(), make_byt_debug_text(b));
 
             if (b.has_idle_anchor()) {
-                draw_ring(win, ring, b.idle_anchor(), b.idle_leash_radius(), idle_label, sf::Color(200,200,200,100));
+                auto anchor = b.idle_anchor();
+                draw_ring(win, ring, anchor, b.idle_leash_radius(), idle_label, sf::Color(200,200,200,100));
+                draw_debug_text_centered(win, debug_text, anchor, {"UID: " + std::to_string(b.id())});
             }
 
             for (const auto& pos : b.food_memory_positions()) {

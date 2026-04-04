@@ -181,6 +181,7 @@ public:
     const SearchConfig& search_config() const noexcept { return search_config_; }
 
     // debug access
+    std::size_t id() { return id_; }
     float energy() const noexcept { return brain_.stored_energy; }
     const char* intent() const noexcept {
         return intent_to_string(intention_);
