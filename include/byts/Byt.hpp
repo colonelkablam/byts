@@ -46,6 +46,10 @@ public:
         Count
     };
 
+    struct ColourRGB {
+        uint8_t r, g, b;
+    };
+
     struct Memory {
         MemoryKind kind;
         MemoryNature nature;
@@ -181,7 +185,6 @@ public:
     const SearchConfig& search_config() const noexcept { return search_config_; }
 
     // debug access
-    std::size_t id() { return id_; }
     float energy() const noexcept { return brain_.stored_energy; }
     const char* intent() const noexcept {
         return intent_to_string(intention_);
@@ -206,6 +209,8 @@ public:
 
     void set_id(std::size_t id) noexcept;
     std::size_t id() const noexcept { return id_; }
+
+    const ColourRGB& colour() const noexcept { return colour_; }
 
     const std::vector<Seen>&  seen()  const noexcept { return seen_; }
     const std::vector<Heard>& heard() const noexcept { return heard_; }
@@ -238,6 +243,7 @@ private:
     Intention intention_{Intention::Idle};
     SmellState smell_;
     SenseState sense_;
+    ColourRGB colour_ {100, 20, 20};
     
     IdleState  idle_;
     SearchState search_;

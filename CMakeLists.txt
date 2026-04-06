@@ -9,8 +9,12 @@ find_package(SFML 2.5 REQUIRED COMPONENTS system window graphics)
 
 # Library with your engine code
 add_library(byts_lib
+    src/App.cpp
     src/Byt.cpp
     src/World.cpp
+    src/render/debug_draw.cpp
+    src/render/world_draw.cpp
+    src/render/RenderResources.cpp
 )
 
 # Public headers live in include/
@@ -20,5 +24,7 @@ target_include_directories(byts_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(byts_lib PUBLIC sfml-system sfml-window sfml-graphics)
 
 # Demo executable
-add_executable(byts_demo src/main.cpp)
+add_executable(byts_demo
+    main.cpp
+)
 target_link_libraries(byts_demo PRIVATE byts_lib)
