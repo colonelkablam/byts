@@ -15,6 +15,14 @@ inline sf::Vector2f clamp_speed(sf::Vector2f v, float max_speed) noexcept {
     float inv = max_speed / std::sqrt(L2);
     return { v.x * inv, v.y * inv };
 }
+inline sf::Vector2f rotate_vector(sf::Vector2f v, float angle) noexcept {
+    float cs = std::cos(angle);
+    float sn = std::sin(angle);
+    return {
+        v.x * cs - v.y * sn,
+        v.x * sn + v.y * cs
+    };
+}
 } // namespace
 
 void Byt::set_id(std::size_t id) noexcept {
@@ -259,16 +267,38 @@ void Byt::choose_intention() {
         } else {
             next = Intention::SearchFood;
         }
-    }
-    else if (brain_.social_drive >= behaviour_.social_on && sees_byt) {
+    } else if (brain_.social_drive >= behaviour_.social_on && sees_byt) {
         next = Intention::SeekCompanion;
     }
 
     if (next != intention_) {
-        enter_intention(next);
+        transition_to(next);
     }
+}
 
-    intention_ = next;
+void Byt::exit_intention() {
+    switch (intention_) {
+        case Intention::Idle:
+            idle_.anchor_set = false;
+            idle_.pause_timer = 0.f;
+            idle_.direction_timer = 0.f;
+            idle_.jiggle_dir = {0.f, 0.f};
+            break;
+
+        case Intention::SearchFood:
+            search_.leg_timer = 0.f;
+            search_.dir = {0.f, 0.f};
+            break;
+
+        case Intention::SeekFoodSmell:
+            smell_.sample_updated = false;
+            smell_.probe_timer = 0.f;
+            smell_.dir = {0.f, 0.f};
+            break;
+
+        default:
+            break;
+    }
 }
 
 void Byt::enter_intention(Intention next) {
@@ -293,7 +323,6 @@ void Byt::enter_intention(Intention next) {
             smell_.prev_food_strength = smell_.food_strength;
             smell_.sample_updated = false;
             smell_.probe_timer = 0.f;
-            smell_.fail_time = 0.f;
             break;
 
         default:
@@ -301,6 +330,12 @@ void Byt::enter_intention(Intention next) {
     }
 
     intention_ = next;
+}
+
+void Byt::transition_to(Intention next) {
+    if (next == intention_) return;
+    exit_intention();
+    enter_intention(next);
 }
 
 const char* Byt::intent_to_string(Intention i) {
@@ -620,49 +655,35 @@ sf::Vector2f Byt::steer_search_food(Seconds dt) {
 }
 
 sf::Vector2f Byt::steer_follow_food_smell(Seconds dt) {
-    if (smell_.sample_updated) {
+    smell_.probe_timer += dt;
+
+    if (smell_.probe_timer >= smell_.probe_duration && smell_.sample_updated) {
         smell_.sample_updated = false;
+        smell_.probe_timer = 0.f;
 
-        if (smell_.food_strength > smell_.prev_food_strength) {
-            // smell improved: keep heading, reset failure time
-            smell_.fail_time = 0.f;
+        float delta = smell_.food_strength - smell_.prev_food_strength;
+
+        if (delta > 0.01f) {
+            // smell improved: keep current direction
+            smell_.fail_count = 0;
+            smell_.turn_angle = std::max(0.15f, smell_.turn_angle * 0.9f);
         } else {
-            // smell worse or unchanged: continue turning in one direction
-            smell_.fail_time += dt;
+            // smell not better: rotate direction and try again
+            smell_.fail_count++;
 
-            // after a while, swap direction
-            if (smell_.fail_time > 1.2f) {
-                smell_.turn_sign *= -1.f;
-                smell_.fail_time = 0.f;
+            if (delta < -0.05f) {
+                smell_.turn_angle = std::min(1.2f, smell_.turn_angle + 0.15f);
             }
 
-            float delta = smell_.food_strength - smell_.prev_food_strength;
+            smell_.dir = rotate_vector(smell_.dir, smell_.turn_angle * smell_.turn_sign);
+            // alternate sides
+            smell_.turn_sign *= -1.f;
 
-            // base turn, sharper if smell dropped
-            float turn_amount = 0.15f;
-
-            if (delta < 0.f) {
-                turn_amount = std::min(0.6f, 0.15f + (-delta * 2.0f));
-            }
-
-            float angle = turn_amount * smell_.turn_sign;
-
-            float cs = std::cos(angle);
-            float sn = std::sin(angle);
-
-            sf::Vector2f d = smell_.dir;
-            smell_.dir = {
-                d.x * cs - d.y * sn,
-                d.x * sn + d.y * cs
-            };
-
-            float L2 = smell_.dir.x * smell_.dir.x + smell_.dir.y * smell_.dir.y;
-            if (L2 > 1e-6f) {
-                float invL = 1.f / std::sqrt(L2);
-                smell_.dir.x *= invL;
-                smell_.dir.y *= invL;
-            } else {
-                smell_.dir = current_heading();
+            // after repeated failures, widen the search
+            if (smell_.fail_count >= 4) {
+                smell_.dir = rotate_vector(smell_.dir, 1.2f * smell_.turn_sign);
+                smell_.fail_count = 0;
+                smell_.turn_angle = 0.5f;
             }
         }
 
@@ -670,13 +691,8 @@ sf::Vector2f Byt::steer_follow_food_smell(Seconds dt) {
     }
 
     heading_ = smell_.dir;
-
     float strength = action_strength();
-
-    return {
-        smell_.dir.x * strength,
-        smell_.dir.y * strength
-    };
+    return smell_.dir * strength;
 }
 
 sf::Vector2f Byt::steer_to_visible_food() const {

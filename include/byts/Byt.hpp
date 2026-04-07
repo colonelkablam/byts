@@ -14,7 +14,7 @@ class Byt {
 public:
     using Seconds = float;
 
-    Byt(sf::Vector2f p = {0.f, 0.f}, float size = 6.f)
+    Byt(sf::Vector2f p = {0.f, 0.f}, float size = 10.f)
         : size_(size), pos_(p), rng_(std::random_device{}()){}
 
     enum class Mood { Neutral, Hungry, Lonely };
@@ -126,14 +126,20 @@ public:
         Seconds smell_timer = 0.f;
     };
     struct SmellState {
-        float food_strength = 0.f;
-        float prev_food_strength = 0.f;
-        bool sample_updated = false;
-        float turn_sign = 1.f;          // +1 or -1
-        float fail_time = 0.f;          // how long smell has not improved
-
         sf::Vector2f dir{1.f, 0.f};
+
+        float food_strength = 0.f;        // current sensed value (from world)
+        float prev_food_strength = 0.f;   // last sampled value
+
         float probe_timer = 0.f;
+        float probe_duration = 1.f;
+
+        float turn_angle = 0.4f;
+        float turn_sign = 1.f;
+
+        int fail_count = 0;
+
+        bool sample_updated = false;
     };
     
     struct IdleState {
@@ -220,7 +226,7 @@ public:
     float size() const noexcept { return size_; }
 
 private:
-    float size_ = 6.f;
+    float size_{10.f};
     std::size_t  id_{0};
     sf::Vector2f pos_{0.f, 0.f};
     sf::Vector2f vel_{0.f, 0.f};
@@ -271,7 +277,9 @@ private:
                                float merge_radius);
     void update_internal_needs(Seconds dt);
     void choose_intention();
+    void exit_intention();
     void enter_intention(Intention next);
+    void transition_to(Intention next);
     static const char* intent_to_string(Intention i);
     float action_strength() const noexcept;
 

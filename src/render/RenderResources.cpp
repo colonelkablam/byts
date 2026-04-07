@@ -29,7 +29,7 @@ void init_render_resources(RenderResources& rr)
     rr.object_shape.setPointCount(32);
     rr.object_shape.setFillColor(sf::Color::White);
     rr.object_shape.setOutlineColor(sf::Color::Black);
-    rr.object_shape.setOutlineThickness(1.f);
+    rr.object_shape.setOutlineThickness(2.f);
 
     rr.debug_dot.setPointCount(16);
 

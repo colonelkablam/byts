@@ -21,8 +21,8 @@ App::App(float width, float height)
 
     render::init_render_resources(render_);
 
-    world_.spawn_byts(3);
-    world_.spawn_food(1, 0.35f, 0.5f, 6.f);
+    world_.spawn_byts(1);
+    world_.spawn_food(8, 0.35f, 0.5f, 6.f);
 }
 
 void App::run()
